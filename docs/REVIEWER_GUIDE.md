@@ -19,9 +19,16 @@ cp .env.example .env
 ```
 
 ### 3. Local Sandbox
-The reviewer path exposes a local sandbox CLI that exercises the runtime with synthetic payloads:
+The reviewer path exposes a local sandbox CLI that exercises the runtime with synthetic payloads. You can trigger single domain-routing classification runs:
 ```bash
+# Kitchen: recipe processing
+uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
+
+# Books: library cataloging
 uv run python -m src.sandbox "Добавь книгу 1984, Джордж Оруэлл"
+
+# Health: health-log event capture
+uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
 ```
 
 The sandbox uses a fake/offline LLM provider by default and in-memory storage for persistence checks. Telegram, live LLM keys, production Supabase, Docker, and local Postgres are not required for the default reviewer path.
@@ -33,19 +40,29 @@ Run the sandbox tests:
 uv run pytest tests/sandbox -q
 ```
 
-Run the main smoke scenarios:
-```bash
-uv run python -m src.sandbox "Добавь книгу 1984, Джордж Оруэлл"
-uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
-uv run python -m src.sandbox --scenario books
-uv run python -m src.sandbox --scenario health --full
-```
+### Smoke Scenario Suites
+To execute complete multi-step validation flows using synthetic mock datasets, run the following:
+
+- **Kitchen domain validation suite**:
+  ```bash
+  uv run python -m src.sandbox --scenario kitchen --full
+  ```
+
+- **Books domain validation suite**:
+  ```bash
+  uv run python -m src.sandbox --scenario books --full
+  ```
+
+- **Health-Log (medical) domain validation suite**:
+  ```bash
+  uv run python -m src.sandbox --scenario health --full
+  ```
 
 The synthetic fixtures validate:
-- Butler intent routing.
-- LLM orchestration/extraction payloads.
-- The health-log capture flow, including deterministic validation and persistence boundaries.
-- In-memory persistence and inspection using synthetic data.
+- Butler intent routing and classification.
+- LLM orchestration/extraction payloads and schema parsing.
+- Domain assembly capture flow, including deterministic validation rules and persistence boundaries.
+- In-memory persistence mock inspection using synthetic data.
 
 All test suites must run purely against these synthetic datasets, ensuring no production data or credentials are required.
 
@@ -54,5 +71,5 @@ All test suites must run purely against these synthetic datasets, ensuring no pr
 Before public push, the checkout must pass:
 - `uv sync`
 - `uv run pytest tests/sandbox -q`
-- sandbox CLI smoke commands above
-- private-data and secret scans
+- sandbox CLI smoke commands above (all three `--scenario <domain> --full` suites)
+- private-data and secret scans (using tools like `gitleaks`)

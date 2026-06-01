@@ -3,7 +3,7 @@
 This contract defines the strict boundaries, strategy, and rules for publishing `agentic-domain-runtime` as a curated technical portfolio derived from the private source repository.
 
 ## 1. Purpose
-The purpose of the public repository is to showcase a reusable agentic domain runtime and act as a technical portfolio artifact for professional review and resume validation. The public reviewer path must be local-first and must not require Telegram credentials, production Supabase, Render, or live LLM keys. The private source repository contains private task history, agent prompts, operational notes, credentials, and real personal/health data. It is therefore unsuitable for direct publication. The public repository must be a curated, clean version of the runtime, documentation, local reviewer sandbox, and synthetic fixtures.
+The purpose of the public repository is to showcase a reusable agentic domain runtime and act as a professional, evidence-backed resume artifact. The public repository enforces a security-first curated publication boundary: it excludes credentials, production references, raw conversation logs, internal developer prompts, and system task histories. Instead of publishing operational database backups or real usage logs, the repository relies on curated synthetic examples to guarantee clean reproducibility and verify the runtime's core capabilities. This setup provides reviewers with a fully offline, local verification path that requires no live cloud resources or external keys.
 
 ## 2. Publication Strategy
 - **Clean Repository / Squashed Branch**: The codebase will be published to a separate public repository or as a squashed public branch with a completely fresh git history.
@@ -20,8 +20,8 @@ The allowlist of publishable assets includes:
 - Synthetic data fixtures and local reviewer sandbox configurations.
 - Local in-memory sandbox storage for reviewer verification.
 
-## 4. Internal-Only / Denylist File Set
-The following files and paths must remain private and are strictly forbidden from appearing in the public repository:
+## 4. Security & Curation Boundaries (Denylist)
+To demonstrate professional security discipline and maintain a focused technical portfolio, the following operational and developer-facing files are excluded from the public repository:
 - All agent instructions and prompts under `.agents/`.
 - The `tasks/` directory, developer notes, and task progress folders.
 - Any task reports, coder/tester reports, and agent activity history.

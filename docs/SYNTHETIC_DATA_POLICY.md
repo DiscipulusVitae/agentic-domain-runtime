@@ -5,7 +5,7 @@ This document defines the policy, rules, and boundaries for creating and using s
 ## 1. Core Principles
 
 ### Synthetic-Only Principle
-All data fixtures, seed databases, test payloads, and reviewer examples published in the repository must be constructed entirely as artificial (synthetic) data. The inclusion of any real family history, recipe texts, reading lists, operational logs, or personal health records is strictly prohibited.
+To ensure clean reproducibility, showcase security discipline, and maintain a professional curated boundary, all data fixtures, seed databases, test payloads, and reviewer examples published in the repository are constructed entirely as artificial (synthetic) data. This avoids cluttering the portfolio with raw personal logs, casual recipes, or operational history, and guarantees that the entire test suite can be run out-of-the-box in any local environment.
 
 ### Strict Prohibition of Anonymized Real Data
 The anonymization or masking of real user data for use as public fixtures is strictly prohibited. Even when scrubbed of direct identifiers (such as names or dates), real data may contain unique behavioral patterns, specific custom recipes, or complex health histories that could compromise user privacy or expose sensitive contexts. All reviewer assets must be generated from scratch.

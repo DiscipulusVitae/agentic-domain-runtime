@@ -6,27 +6,27 @@ This document describes the logical database schema layout and storage architect
 
 ## 1. Conceptual Namespaces
 
-The production database is structured into isolated logical namespaces using table prefixes. This prevents tight coupling and ensures clean boundaries between independent domain assemblies:
+The production database is structured into isolated logical database schemas/namespaces. This prevents tight coupling and ensures clean boundaries between independent domain assemblies:
 
-- **`core` Namespace**:
+- **`core` Schema / Namespace**:
   - Manages tenant contexts, user preferences, and Butler FSM conversational sessions.
-  - Conceptual tables: `core_users`, `core_sessions`, `core_preferences`.
+  - Conceptual tables: `core.users`, `core.sessions`, `core.preferences`.
 
-- **`kitchen` Namespace**:
+- **`kitchen` Schema / Namespace**:
   - Stores recipe metadata, structured ingredient indexes, cooking instructions, and links to photo attachments.
-  - Conceptual tables: `kitchen_recipes`, `kitchen_ingredients`, `kitchen_recipe_ingredients`, `kitchen_photos`.
+  - Conceptual tables: `kitchen.recipes`, `kitchen.ingredients`, `kitchen.recipe_ingredients`, `kitchen.photos`.
 
-- **`books` Namespace**:
+- **`books` Schema / Namespace**:
   - Stores book metadata, library catalogs, and user reading progress events.
-  - Conceptual tables: `books_library`, `books_reading_sessions`, `books_authors`.
+  - Conceptual tables: `books.library`, `books.reading_sessions`, `books.authors`.
 
-- **`med` Namespace**:
+- **`med` Schema / Namespace**:
   - Stores structured logs of health-related metrics (e.g., blood pressure, heart rate, blood glucose) with high-granularity timestamps.
-  - Conceptual tables: `med_metric_logs`, `med_subject_profiles`.
+  - Conceptual tables: `med.metric_logs`, `med.subject_profiles`.
 
-- **`api` Namespace**:
+- **`api` Schema / Namespace**:
   - Handles integration mapping, request logs, and telemetry indexes.
-  - Conceptual tables: `api_request_logs`, `api_token_scopes`.
+  - Conceptual tables: `api.request_logs`, `api.token_scopes`.
 
 ---
 
@@ -50,5 +50,5 @@ The public sandbox utilizes an in-memory repository pattern to simulate data per
 
 To maintain a secure posture:
 - **Private References**: Production SQL migration scripts contain hardcoded Telegram IDs of administrators, RLS exception rules, external storage bucket names, and API references that are sensitive.
-- **Safety Margin**: A port of standard database migrations to the public repo could risk minor schema leakage (e.g., specific user flags).
+- **Safety Margin**: Production migrations are not copied or published to the public repository. This prevents any minor schema leakage (e.g., specific user flags or system extensions).
 - **Separation of Concerns**: This repository demonstrates the domain runtime engine, not DevOps/database provisioning scripts.
