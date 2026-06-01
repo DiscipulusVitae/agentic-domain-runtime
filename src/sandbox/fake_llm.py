@@ -2,7 +2,7 @@ import json
 import re
 from typing import Any, Optional
 
-from src.sandbox.contracts import BookExtraction, MedicalExtraction, MedicalEntry
+from src.sandbox.contracts import BookExtraction, MedicalExtraction, MedicalEntry, RecipeDraft
 
 
 class FakeResponse:
@@ -328,6 +328,72 @@ class FakeLLMClient:
                 confidence=1.0,
                 needs_confirmation=False,
                 next_question=None
+            )
+
+            response_json = parsed_obj.model_dump_json()
+            return FakeResponse(text=response_json, parsed=parsed_obj), "fake-model"
+
+        elif self.agent_id == "kitchen.assistant":
+            # Clean up typical command prefixes from the message first
+            prefix_pattern = r'^(?:добавь(?:ть)?(?:\s+рецепт)?|добавить(?:\s+рецепт)?|запиши(?:ть)?(?:\s+рецепт)?|записать(?:\s+рецепт)?|рецепт)\b\s*'
+            content_str = re.sub(prefix_pattern, '', message_str, flags=re.IGNORECASE).strip()
+
+            title = None
+            ingredients = []
+            instructions = None
+
+            # Detect by keywords first for higher accuracy in scenarios
+            if "лимонной пасты" in msg_lower or "лимонная паста" in msg_lower:
+                title = "Лимонная паста с базиликом"
+                ingredients = ["лимон", "паста", "базилик"]
+            elif "яблочного пирога" in msg_lower or "яблочный пирог" in msg_lower:
+                title = "Яблочный пирог с корицей"
+                ingredients = ["яблоки", "корица", "мука", "сахар"]
+            elif "салат" in msg_lower:
+                title = "Салат"
+                ingredients = ["огурец", "помидор", "оливковое масло"]
+            elif "борщ" in msg_lower:
+                title = "Борщ"
+                ingredients = ["свекла", "капуста", "картофель", "мясо"]
+            elif "пюре" in msg_lower:
+                title = "Пюре"
+                ingredients = ["картофель", "молоко", "сливочное масло"]
+            elif "суп" in msg_lower:
+                title = "Суп"
+                ingredients = []
+
+            # If there's a colon, we try parsing ingredients from the second part
+            if ":" in content_str:
+                parts = content_str.split(":", 1)
+                before_colon = parts[0].strip()
+                after_colon = parts[1].strip()
+                
+                # If title is not set by keyword, try extracting it from before_colon
+                if not title:
+                    # Clean before_colon
+                    clean_title = re.sub(r'^(?:ингредиенты для\s+|ингредиенты\s+)', '', before_colon, flags=re.IGNORECASE).strip()
+                    if clean_title:
+                        title = clean_title
+                
+                # Parse ingredients from after_colon
+                if after_colon:
+                    parsed_ingredients = [i.strip() for i in after_colon.split(",") if i.strip()]
+                    if parsed_ingredients:
+                        ingredients = parsed_ingredients
+
+            # If title is still not extracted, use content_str as title
+            if not title and content_str:
+                title = content_str
+
+            ready_to_save = bool(title)
+            next_question = None if ready_to_save else "Какое блюдо вы хотите приготовить?"
+
+            parsed_obj = RecipeDraft(
+                title=title,
+                ingredients=ingredients if ingredients else None,
+                instructions=instructions,
+                ready_to_save=ready_to_save,
+                next_question=next_question
             )
 
             response_json = parsed_obj.model_dump_json()

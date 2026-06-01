@@ -35,6 +35,26 @@ class FakeMedicalService:
         return list(reversed(self.db_list))[:limit]
 
 
+@dataclass
+class FakeRecipe:
+    title: str
+    ingredients: list[str] | None = None
+    instructions: str | None = None
+
+
+class FakeKitchenService:
+    def __init__(self, db_list: list[FakeRecipe]):
+        self.db_list = db_list
+
+    async def get_all_recipes(self) -> list[FakeRecipe]:
+        return self.db_list
+
+    async def create_recipe(self, title: str, ingredients: list[str] | None = None, instructions: str | None = None):
+        recipe = FakeRecipe(title=title, ingredients=ingredients, instructions=instructions)
+        self.db_list.append(recipe)
+        return recipe
+
+
 class SandboxHarness:
     """
     Harness for run-through smoke flows in local sandbox.
@@ -43,13 +63,16 @@ class SandboxHarness:
     def __init__(self):
         self.books_db: list[FakeBook] = []
         self.medical_db: list[MedicalEntry] = []
+        self.kitchen_db: list[FakeRecipe] = []
         
         self.books_db_service = FakeBooksService(self.books_db)
         self.medical_db_service = FakeMedicalService(self.medical_db)
+        self.kitchen_db_service = FakeKitchenService(self.kitchen_db)
         
         self.dp = {
             "books_service": self.books_db_service,
-            "medical_service": self.medical_db_service
+            "medical_service": self.medical_db_service,
+            "kitchen_service": self.kitchen_db_service
         }
 
     async def run_flow(self, text: str) -> dict:
@@ -73,20 +96,45 @@ class SandboxHarness:
             }
 
         # Step 2: Handle domains
-        if domain_id == "kitchen":
-            trace = [f"[routing: {domain_id}]", "[kitchen: stub — interactive batching not included]"]
-            return {
-                "routing": result.decision.model_dump(),
-                "trace": " -> ".join(trace),
-                "success": True,
-                "stub": True
-            }
-
         trace = [f"[routing: {domain_id}]"]
         output_lines = []
         persisted = False
 
-        if domain_id == "books":
+        if domain_id == "kitchen":
+            # Extract via kitchen client
+            fake_kitchen_client = FakeLLMClient(agent_id="kitchen.assistant")
+            response, active_model = await fake_kitchen_client.send_with_fallback(
+                chat=None,
+                message=text,
+                current_model="fake-model",
+                history=[]
+            )
+            recipe_extraction = response.parsed  # This is RecipeDraft
+            
+            output_lines.append("⏳ Анализирую рецепт...")
+            output_lines.append("---")
+            output_lines.append("[Кухня · Шеф]")
+            
+            if recipe_extraction.ready_to_save:
+                await self.kitchen_db_service.create_recipe(
+                    title=recipe_extraction.title,
+                    ingredients=recipe_extraction.ingredients,
+                    instructions=recipe_extraction.instructions
+                )
+                persisted = True
+                records_count = len(self.kitchen_db)
+                trace.append("[extraction: success]")
+                trace.append("[validation: success]")
+                trace.append(f"[persistence: saved ({records_count} records)]")
+                output_lines.append(f"✅ Рецепт «{recipe_extraction.title}» успешно сохранен в sandbox!")
+            else:
+                persisted = False
+                trace.append("[extraction: success]")
+                trace.append("[validation: failed]")
+                trace.append("[persistence: failed]")
+                output_lines.append(recipe_extraction.next_question or "Недостаточно данных для сохранения.")
+
+        elif domain_id == "books":
             # Extract via books client
             fake_books_client = FakeLLMClient(agent_id="books.cataloger")
             response, active_model = await fake_books_client.send_with_fallback(

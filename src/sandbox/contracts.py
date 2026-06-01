@@ -273,3 +273,24 @@ class MedicalExtraction(BaseModel):
             else:
                 return False
         return True
+
+
+# --- Kitchen Domain contracts ---
+
+class RecipeDraft(BaseModel):
+    """
+    Result of recipe metadata extraction from free text.
+    """
+    title: Optional[str] = Field(default=None, description="Dish name or title")
+    ingredients: Optional[list[str]] = Field(default=None, description="List of ingredients")
+    instructions: Optional[str] = Field(default=None, description="Preparation steps or description")
+    ready_to_save: bool = Field(default=False, description="True if enough data is available to save")
+    next_question: Optional[str] = Field(default=None, description="Clarification question for missing data")
+
+    @model_validator(mode="after")
+    def ensure_ready_requires_required_fields(self) -> "RecipeDraft":
+        if self.ready_to_save:
+            if not self.title:
+                raise ValueError("ready_to_save=True требует непустое название блюда (title)")
+        return self
+

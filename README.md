@@ -1,34 +1,56 @@
 # agentic-domain-runtime
 
-`agentic-domain-runtime` is a multi-domain LLM-assisted runtime designed to route, process, validate, and store structured data across isolated domain assemblies.
+`agentic-domain-runtime` is a curated, public-safe slice of a private, production-used FamilyAI system. It demonstrates the reusable core architectural patterns for multi-domain routing, LLM-assisted data extraction, deterministic validation, and decoupled persistence.
 
-## Quickstart
+> [!NOTE]
+> This repository is designed to serve as a portfolio artifact, demonstrating clean engineering practices, robust boundaries, and the core runtime patterns utilized in the larger private production environment.
 
-The default reviewer path is fully local and offline: fake LLM, synthetic payloads, and in-memory persistence. It does not require Telegram, Docker, PostgreSQL/Supabase, Render, or live LLM keys.
+## Context & Lineage
 
-```bash
-uv sync
-uv run pytest tests/sandbox -q
-uv run python -m src.sandbox "Добавь книгу 1984, Джордж Оруэлл"
-uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
-uv run python -m src.sandbox --scenario books
-uv run python -m src.sandbox --scenario health --full
-```
+The private production-scale system utilizes:
+- **Telegram Bot / Mini App** interaction interfaces for daily user communications.
+- **Supabase / PostgreSQL** storage layer structured around clean domain namespaces.
+- **Redis / FSM / Batching** concerns to manage conversational flow and database request queues.
+- **Render-style** automated cloud deployment.
+
+To ensure compliance with strict privacy and safety guidelines, the public slice:
+- **Removes**: Live infrastructure (PostgreSQL/Supabase, Redis, Render configs), Telegram bot runtime wrapper, private keys, database credentials, production IDs, personal names, real user data, and raw LLM trace logs.
+- **Preserves**: Reusable runtime architecture, including free-form Butler routing, typed domain extraction contracts, deterministic validation logic, storage seams, and a fully local offline reviewer harness.
 
 ## Core Features
 
-- **Multi-Domain LLM Runtime**: A runtime for handling free-form inputs through a local reviewer sandbox, using a fake/offline LLM provider to demonstrate extraction and orchestration boundaries.
-- **Reusable Core**: The system separates platform-level concerns (bootstrap, session state, LLM clients, error boundaries, and observability) from domain-specific features.
-- **Domain Assemblies**: Independent business logic modules (domains) that register with the core runtime. Standard domain assemblies include:
-  - **Kitchen**: Synthetic recipe capture stub showing a domain boundary.
-  - **Books**: Library capture and reading-progress style payloads.
-  - **Health-log capture**: Structural capture of synthetic health-related metrics and events.
-- **Butler-first Free-input Routing**: Incoming free-form messages are first processed by the Butler Core. The Butler determines the user's intent and routes the payload to the appropriate domain assembly without hardcoded command trees.
-- **LLM orchestration/extraction + deterministic validation and persistence**: LLM-style extraction turns unstructured inputs into typed data models, while deterministic validation and in-memory persistence verify the resulting structures.
+- **Multi-Domain LLM Runtime**: Routes and processes unstructured, free-form text input through a fully local offline reviewer sandbox using a fake LLM provider.
+- **Butler-first Free-input Routing**: Incoming requests are classified by the Butler Core to determine the target domain (Kitchen, Books, Medical) and intent, eliminating the need for rigid command trees.
+- **Domain Assemblies**: Independent, isolated functional modules. Shipped examples include:
+  - **Kitchen**: Synthetic recipe capture and ingredient extraction.
+  - **Books**: Book library metadata extraction.
+  - **Medical/Health Capture**: Structural health-related metric recording (strictly limited to event logging, avoiding any clinical decision support).
+- **LLM Extraction + Deterministic Validation**: Turns unstructured text inputs into structured, typed models, validating them before persistence.
+- **Decoupled Persistence Seams**: Abstracted database interfaces that map in-memory mock storage directly to conceptual relational boundaries.
+
+## Quickstart
+
+The default reviewer path runs completely local and offline (no external API calls, no live databases required).
+
+```bash
+# Sync dependencies
+uv sync
+
+# Run tests
+uv run pytest tests/sandbox -q
+
+# Run CLI with a single free-text input
+uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
+uv run python -m src.sandbox "Добавь книгу 1984, Джордж Оруэлл"
+uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
+
+# Run full domain scenarios
+uv run python -m src.sandbox --scenario kitchen --full
+uv run python -m src.sandbox --scenario books --full
+uv run python -m src.sandbox --scenario health --full
+```
 
 ## Project Boundaries & Safety
 
-To ensure compliance with strict privacy and safety guidelines:
-- The system is a deterministic data-capture tool for capturing events and domain entities.
-- It is strictly limited to structured event capturing and data storage without providing automated feedback, reasoning, or therapeutic routing.
-- The reviewer sandbox uses exclusively synthetic fixtures and mock data.
+- This system is a deterministic data-capture tool. It does not provide medical, diagnostic, or therapeutic feedback.
+- The reviewer sandbox operates exclusively on synthetic data and offline fixtures.

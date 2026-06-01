@@ -46,7 +46,7 @@ async def test_cli_single_text_routing(capsys):
 
     captured = capsys.readouterr()
     assert "=== Sandbox Harness: Full Flow Run ===" in captured.out
-    assert "Trace:  [routing: kitchen] -> [kitchen: stub — interactive batching not included]" in captured.out
+    assert "Trace:  [routing: kitchen] -> [extraction: success] -> [validation: success] -> [persistence: saved (1 records)]" in captured.out
     assert "Domain:     kitchen" in captured.out
     assert "Agent:      kitchen.assistant" in captured.out
     assert "Confidence: 0.92" in captured.out
