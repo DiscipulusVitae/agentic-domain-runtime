@@ -1,0 +1,26 @@
+[
+  {
+    "input": "Добавь рецепт яблочного пирога с корицей",
+    "expected_domain": "kitchen",
+    "expected_agent": "kitchen.assistant",
+    "description": "Добавление рецепта текстом"
+  },
+  {
+    "input": "Ингредиенты для салата: огурец, помидор, оливковое масло",
+    "expected_domain": "kitchen",
+    "expected_agent": "kitchen.assistant",
+    "description": "Описание блюда с ингредиентами"
+  },
+  {
+    "input": "Запиши рецепт супа на завтра",
+    "expected_domain": "kitchen",
+    "expected_agent": "kitchen.assistant",
+    "description": "Просьба записать рецепт"
+  },
+  {
+    "input": "Как приготовить пюре на кухне?",
+    "expected_domain": "kitchen",
+    "expected_agent": "kitchen.assistant",
+    "description": "Вопрос про готовку"
+  }
+]

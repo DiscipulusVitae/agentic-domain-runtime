@@ -1,0 +1,36 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Secrets & Environment Variables
+.env
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Test & Coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build and Distribution artifacts
+build/
+dist/
+*.egg-info/
+
+# Local Logs
+*.log

@@ -1,0 +1,26 @@
+[
+  {
+    "input": "Добавь книгу Война и мир Льва Толстого в список чтения",
+    "expected_domain": "books",
+    "expected_agent": "books.cataloger",
+    "description": "Добавление книги (public domain title)"
+  },
+  {
+    "input": "Я прочитал 50 страниц сегодня",
+    "expected_domain": "books",
+    "expected_agent": "books.cataloger",
+    "description": "Прогресс чтения"
+  },
+  {
+    "input": "Покажи список того, что я читал в этом месяце",
+    "expected_domain": "books",
+    "expected_agent": "books.cataloger",
+    "description": "Список прочитанного"
+  },
+  {
+    "input": "Кто автор этой книги?",
+    "expected_domain": "books",
+    "expected_agent": "books.cataloger",
+    "description": "Упоминание автора"
+  }
+]
