@@ -52,3 +52,11 @@ To maintain a secure posture:
 - **Private References**: Production SQL migration scripts contain hardcoded Telegram IDs of administrators, RLS exception rules, external storage bucket names, and API references that are sensitive.
 - **Safety Margin**: Production migrations are not copied or published to the public repository. This prevents any minor schema leakage (e.g., specific user flags or system extensions).
 - **Separation of Concerns**: This repository demonstrates the domain runtime engine, not DevOps/database provisioning scripts.
+
+---
+
+## 4. Conceptual Schema Artifacts
+
+To bridge the gap between in-memory mock structures and PostgreSQL boundaries, refer to the public-safe:
+- **[Database Schema Sketches](schema/schema_sketches.sql)**: Logical DDL for namespaces and tables.
+- **[Synthetic Data Seeds](schema/synthetic_seeds.sql)**: Sample data demonstrating the relational structure.
