@@ -1,6 +1,6 @@
 [
   {
-    "input": "Добавь книгу Война и мир Льва Толстого в список чтения",
+    "input": "Добавь книгу Хроники Зеленого Архива Виктора Классика в список чтения",
     "expected_domain": "books",
     "expected_agent": "books.cataloger",
     "description": "Добавление книги (public domain title)"

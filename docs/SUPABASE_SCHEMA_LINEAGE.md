@@ -46,12 +46,11 @@ The public sandbox utilizes an in-memory repository pattern to simulate data per
 
 ---
 
-## 3. Why Production Migrations Are Omitted
+## 3. Production Migrations vs. Local Migrations
 
-To maintain a secure posture:
-- **Private References**: Production SQL migration scripts contain hardcoded Telegram IDs of administrators, RLS exception rules, external storage bucket names, and API references that are sensitive.
-- **Safety Margin**: Production migrations are not copied or published to the public repository. This prevents any minor schema leakage (e.g., specific user flags or system extensions).
-- **Separation of Concerns**: This repository demonstrates the domain runtime engine, not DevOps/database provisioning scripts.
+To maintain a secure posture, we distinguish between:
+- **Production Migrations (Omitted)**: Private production SQL migration scripts are not copied or published because they contain hardcoded Telegram IDs of administrators, production-specific RLS policies, and environment references.
+- **Local Migrations (Provided)**: We provide a curated, public-safe local Supabase configuration under `supabase/` containing local-only migrations, RLS policies, and seeds. This allows reviewers to verify the exact database schema and security rules using local Docker containers.
 
 ---
 

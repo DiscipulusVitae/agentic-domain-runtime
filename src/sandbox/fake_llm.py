@@ -191,14 +191,14 @@ class FakeLLMClient:
 
             # Provide fallbacks if missing but matches typical names
             if not title:
-                title = "1984"
+                title = "2094"
             if not author:
-                if "оруэлл" in msg_lower:
-                    author = "Джордж Оруэлл"
-                elif "толстой" in msg_lower:
-                    author = "Лев Толстой"
-                elif "пушкин" in msg_lower:
-                    author = "Александр Пушкин"
+                if "оруэлл" in msg_lower or "дистопик" in msg_lower:
+                    author = "Артур Дистопик"
+                elif "толстой" in msg_lower or "классик" in msg_lower:
+                    author = "Виктор Классик"
+                elif "пушкин" in msg_lower or "поэт" in msg_lower:
+                    author = "Александр Поэт"
                 else:
                     author = "Неизвестный Автор"
 

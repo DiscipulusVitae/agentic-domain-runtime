@@ -14,11 +14,11 @@ Verify that the `core.butler` router can parse free-form, unstructured user inpu
 2. The Butler Core processes the intent and returns a routing decision.
 
 ### Scenario Example
-- **Input text**: `"I just read page 45 of Alice in Wonderland and really liked the chapter."`
+- **Input text**: `"I just read page 45 of Chronicles of the Green Archive and really liked the chapter."`
 - **Expected routing outcome**: 
   - Target Domain: `Books Domain Assembly`
   - Action/Intent: `reading_progress_update`
-  - Parameters: `{ "title": "Alice in Wonderland", "page": 45 }`
+  - Parameters: `{ "title": "Chronicles of the Green Archive", "page": 45 }`
 - **Alternative Input text**: `"Here is the list for my Martian Tomato Salad: 3 tomatoes, 1 onion, olive oil."`
 - **Expected routing outcome**:
   - Target Domain: `Kitchen Domain Assembly`
@@ -74,9 +74,9 @@ Validate reading log updates, shelf categorization, and progress tracking functi
 
 ### Scenario Example
 - **Initial Catalog State**:
-  - Book: `"The Time Machine"` by H.G. Wells (Total Pages: 120)
-  - Book: `"Alice in Wonderland"` by Lewis Carroll (Total Pages: 150)
-- **Reviewer Action**: Updates progress: `"Finished page 30 of The Time Machine."`
+  - Book: `"Fictional Journey"` by Arthur Dystopian (Total Pages: 120)
+  - Book: `"Chronicles of the Green Archive"` by Victor Classic (Total Pages: 150)
+- **Reviewer Action**: Updates progress: `"Finished page 30 of Fictional Journey."`
 - **Expected Database State**: 
   - Current page: `30`
   - Completion: `25%`

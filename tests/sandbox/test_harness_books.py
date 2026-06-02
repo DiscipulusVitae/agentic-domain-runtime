@@ -7,7 +7,7 @@ async def test_books_flow():
     harness = SandboxHarness()
     
     # Run harness with parsed book metadata
-    result = await harness.run_flow("Добавь книгу Война и мир, Лев Толстой, великий роман, 1869")
+    result = await harness.run_flow("Добавь книгу Хроники Зеленого Архива, Виктор Классик, великий роман, 1869")
     
     assert result["success"] is True
     assert result["routing"]["domain_id"] == "books"
@@ -22,8 +22,8 @@ async def test_books_flow():
     assert len(books) > 0
     
     last_book = books[0]
-    assert last_book.title == "Война и мир"
-    assert last_book.author == "Лев Толстой"
+    assert last_book.title == "Хроники Зеленого Архива"
+    assert last_book.author == "Виктор Классик"
     assert last_book.year == 1869
 
 
@@ -32,7 +32,7 @@ async def test_books_flow_numerical_title():
     harness = SandboxHarness()
 
     # Run harness with numerical book title
-    result = await harness.run_flow("Добавь книгу 1984, Джордж Оруэлл")
+    result = await harness.run_flow("Добавь книгу 2094, Артур Дистопик")
 
     assert result["success"] is True
     assert result["routing"]["domain_id"] == "books"
@@ -42,6 +42,6 @@ async def test_books_flow_numerical_title():
     assert len(books) > 0
 
     last_book = books[0]
-    assert last_book.title == "1984"
-    assert last_book.author == "Джордж Оруэлл"
+    assert last_book.title == "2094"
+    assert last_book.author == "Артур Дистопик"
     assert last_book.year is None

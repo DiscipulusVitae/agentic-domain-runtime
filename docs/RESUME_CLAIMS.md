@@ -23,6 +23,6 @@ These claims are directly verifiable by running the tests, reading the codebase,
 These claims represent production-tested patterns from the private codebase. They are documented in this public repository but are not directly shipped as runnable code to ensure privacy:
 
 - **Telegram Bot / Mini App Integration**: The production interface using `aiogram` 3.x and custom React components is replaced by the local CLI harness. (See [Private-to-Public Lineage](PRIVATE_TO_PUBLIC_LINEAGE.md)).
-- **Supabase / PostgreSQL Logical Relational Schema**: The production multi-namespace database layout is documented conceptually, but replaced by local, in-memory list persistence mocks. (See [Supabase Schema Lineage](SUPABASE_SCHEMA_LINEAGE.md)).
+- **Supabase / PostgreSQL Logical Relational Schema**: The production multi-namespace database layout and Row-Level Security (RLS) policies are demonstrated via a runnable local Supabase package, while the default offline sandbox uses local in-memory persistence mocks. (See [Supabase Schema Lineage](SUPABASE_SCHEMA_LINEAGE.md)).
 - **Redis State Machine & Queue Batching**: Production FSM session locks and batching queues are removed in the public sandbox to stay offline.
 - **Render-based DevOps Pipeline**: Production automated container deployments and render configuration scripts are omitted from this public slice.
