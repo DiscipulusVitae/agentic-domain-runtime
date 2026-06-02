@@ -66,7 +66,7 @@ INSERT INTO "books"."books" ("id", "title", "author_id", "isbn_13", "description
 
 INSERT INTO "books"."notes" ("id", "book_id", "content", "source") VALUES
 (50, 10100, 'Мысль народная — ключевая идея первого тома.', 'manual'),
-(60, 20200, '«Война — это мир, свобода — это рабство, незнание — сила».', 'agent_extraction');
+(60, 20200, 'Ключевые лозунги партии и концепт двоемыслия.', 'agent_extraction');
 
 INSERT INTO "books"."reading_sessions" ("book_id", "status", "started_at", "finished_at", "progress_percent", "rating") VALUES
 (10100, 'reading', '2026-05-10', NULL, 45, NULL),

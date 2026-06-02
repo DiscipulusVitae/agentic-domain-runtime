@@ -7,7 +7,7 @@ This directory contains public-safe schema sketches and synthetic data seeds des
 ## What is in this package?
 
 1. **`schema_sketches.sql`**: Conceptual DDL definitions for logical namespaces (`core`, `kitchen`, `books`, `med`, `api`) used by the Agentic Domain Runtime (ADR).
-2. **`synthetic_seeds.sql`**: Fully artificial database inserts designed for system flow tests, demonstration, and offline validation.
+2. **`synthetic_seeds.sql`**: Synthetic personas and operational records; public-literature examples where useful (designed for system flow tests, demonstration, and offline validation).
 
 ---
 

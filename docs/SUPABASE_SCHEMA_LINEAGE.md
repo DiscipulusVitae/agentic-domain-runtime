@@ -55,8 +55,9 @@ To maintain a secure posture:
 
 ---
 
-## 4. Conceptual Schema Artifacts
+## 4. Conceptual Schema & Verification Artifacts
 
 To bridge the gap between in-memory mock structures and PostgreSQL boundaries, refer to the public-safe:
 - **[Database Schema Sketches](schema/schema_sketches.sql)**: Logical DDL for namespaces and tables.
 - **[Synthetic Data Seeds](schema/synthetic_seeds.sql)**: Sample data demonstrating the relational structure.
+- **[Local Supabase Runbook](RUNBOOK_LOCAL_SUPABASE.md)**: Optional local-first verification path design.
