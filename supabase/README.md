@@ -7,6 +7,7 @@ This directory contains a public-safe, runnable local Supabase scaffold. It enab
 - `config.toml`: Configures the local Supabase environment, exposes custom logical schemas (`core`, `kitchen`, `books`, `med`, `api`), and enables automatic database seeding.
 - `migrations/0001_schema.sql`: Contains the DDL scripts defining schemas, tables, constraints, RLS policies, and role grants.
 - `seed.sql`: Seeds the local database with synthetic and public-safe identity and operational data.
+- `smoke.sql`: Read-only SQL script to verify schemas, tables, seed counts, RLS, and policies on the local instance.
 
 ## Running Locally
 
@@ -21,6 +22,12 @@ supabase start
 
 # Reset the database state (applies migrations and seeds data)
 supabase db reset
+
+# Run the reviewer smoke checks
+supabase db query --local --file supabase/smoke.sql
+
+# Stop the local Supabase containers when done
+supabase stop
 ```
 
 The database seeds will be applied automatically, creating mock users and mock domain entries. You can then access the local Supabase Studio dashboard at [http://localhost:54323](http://localhost:54323).

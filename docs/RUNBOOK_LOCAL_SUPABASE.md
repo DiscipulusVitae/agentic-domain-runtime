@@ -26,6 +26,7 @@ supabase/
   migrations/
     0001_schema.sql  # Database schema definitions, RLS policies, and grants
   seed.sql           # Synthetic and public-safe seed data for local testing
+  smoke.sql          # Read-only SQL script validating schemas, RLS, and seed data
   README.md          # Local Supabase package instructions
 ```
 
@@ -46,10 +47,16 @@ supabase start
 # Apply database migrations and seeds to reset/populate the local database state
 supabase db reset
 
-# Perform quick smoke checks on the auto-generated REST endpoint
+# Run the local SQL smoke tests to verify schemas, RLS policies, and seed counts
+supabase db query --local --file supabase/smoke.sql
+
+# Optionally perform quick smoke checks on the auto-generated REST endpoint
 curl -X GET "http://localhost:54321/rest/v1/dishes" \
   -H "apikey: <anon_key>" \
   -H "Authorization: Bearer <anon_key>"
+
+# Stop the local Supabase stack when finished
+supabase stop
 ```
 
 ---

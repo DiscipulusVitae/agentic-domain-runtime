@@ -67,8 +67,8 @@ The synthetic fixtures validate:
 All test suites must run purely against these synthetic datasets, ensuring no production data or credentials are required.
 
 ## Database Schema & Local Supabase
-For reviewers analyzing our PostgreSQL/Supabase boundaries, we provide a public-safe ready-to-run Supabase package and a runbook:
-- Refer to **[Local Supabase Package](../../supabase/README.md)** for local migrations, RLS policies, configuration, and seeds.
+For reviewers analyzing our PostgreSQL/Supabase boundaries, we provide a public-safe ready-to-run Supabase package, a local SQL smoke script, and a runbook:
+- Refer to **[Local Supabase Package](../../supabase/README.md)** for local migrations, RLS policies, configuration, seeds, and the `smoke.sql` validation script.
 - Refer to the **[Local Supabase Runbook](RUNBOOK_LOCAL_SUPABASE.md)** for the optional local-first verification path guide.
 
 ## Publication Gates
