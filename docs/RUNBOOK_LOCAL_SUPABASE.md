@@ -18,33 +18,32 @@ We have chosen a **Supabase local-first** approach over a plain PostgreSQL-only 
 
 ## 2. Target Directory Structure
 
-For future runnable integration, the database assets will be organized as follows:
+The database assets are organized as a runnable package:
 
 ```text
 supabase/
   config.toml        # Local Supabase service configurations and API schema exposures
   migrations/
-    0001_schema.sql  # Database schema definitions and DDL scripts
-  seed.sql           # Synthetic seed data for testing
+    0001_schema.sql  # Database schema definitions, RLS policies, and grants
+  seed.sql           # Synthetic and public-safe seed data for local testing
+  README.md          # Local Supabase package instructions
 ```
 
 > [!NOTE]
-> Currently, the conceptual schema definitions and synthetic seeds are located in [schema_sketches.sql](schema/schema_sketches.sql) and [synthetic_seeds.sql](schema/synthetic_seeds.sql).
+> The ready-to-run `supabase/` package is included in the public repository staging target. You can verify it directly using a local Supabase CLI and Docker setup.
 
 ---
 
-## 3. Conceptual Commands for Local Verification
+## 3. Commands for Local Verification
 
-To run and verify the schema locally, a reviewer would execute the following standard CLI commands:
+To run and verify the schema locally (requires **Docker** running and the **Supabase CLI** installed locally), execute the following commands from the root of the extracted public repository:
 
 ```bash
-# Initialize the Supabase project configuration
-supabase init
-
-# Start the local Docker-based Supabase stack (creates PostgreSQL, Auth, REST API, etc.)
+# Start the local Docker-based Supabase stack (creates PostgreSQL, Auth, REST API, Studio, etc.)
+# Note: Since the config.toml is already provided, 'supabase init' is NOT required.
 supabase start
 
-# Apply database migrations and seeds to reset the local database state
+# Apply database migrations and seeds to reset/populate the local database state
 supabase db reset
 
 # Perform quick smoke checks on the auto-generated REST endpoint

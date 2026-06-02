@@ -54,7 +54,8 @@ uv run python -m src.sandbox --scenario health --full
 
 To quickly evaluate the codebase, follow these key architectural maps and evidence documents:
 - **[Reviewer Guide](docs/REVIEWER_GUIDE.md)**: Detailed step-by-step local validation instructions.
-- **[Database Schema Package](docs/schema/README.md)**: Public-safe conceptual SQL schemas and synthetic seed data.
+- **[Local Supabase Package](supabase/README.md)**: Public-safe ready-to-run local Supabase package containing migrations, RLS policies, seeds, and configuration.
+- **[Local Supabase Runbook](docs/RUNBOOK_LOCAL_SUPABASE.md)**: Guide on how to run a local Supabase / PostgreSQL instance to verify database boundaries and RLS policies.
 - **[Resume Claims Evidence](docs/RESUME_CLAIMS.md)**: Direct mapping of resume/portfolio statements to files and tests.
 - **[Private-to-Public Lineage](docs/PRIVATE_TO_PUBLIC_LINEAGE.md)**: Traceability map showing how this clean runtime relates to the production system.
 - **[Supabase Schema Lineage](docs/SUPABASE_SCHEMA_LINEAGE.md)**: Explanation of database schemas, namespaces, and mock mapping.

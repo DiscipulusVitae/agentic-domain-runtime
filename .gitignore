@@ -34,3 +34,7 @@ dist/
 
 # Local Logs
 *.log
+
+# Supabase local generated state
+supabase/.branches/
+supabase/.temp/
