@@ -38,36 +38,62 @@ The codebase supports two distinct verification paths for technical reviewers:
 ## Quickstart
 
 ### Path A: Default Offline Sandbox (Default)
-Runs completely offline with zero infrastructure dependencies.
+Runs completely offline with zero infrastructure dependencies. It uses a local fake LLM provider and in-memory persistence mocks to demonstrate the domain routing, extraction, validation, and storage workflows without needing external APIs or a live database.
 
-```bash
-# Sync dependencies
-uv sync
+1. **Synchronize dependencies & run tests**
+   ```bash
+   # Sync dependencies
+   uv sync
 
-# Run tests
-uv run pytest tests/sandbox -q
+   # Run offline test suite
+   uv run pytest tests/sandbox -q
+   ```
 
-# Run CLI with a single free-text input
-uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
-uv run python -m src.sandbox "Добавь книгу Хроники Зеленого Архива, Виктор Классик"
-uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
+2. **Execute the CLI sandbox**
+   Directly test the multi-domain routing and data-extraction parsing of free-text inputs:
+   ```bash
+   # Kitchen: recipe processing
+   uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
 
-# Run full domain scenarios
-uv run python -m src.sandbox --scenario kitchen --full
-uv run python -m src.sandbox --scenario books --full
-uv run python -m src.sandbox --scenario health --full
+   # Books: library cataloging
+   uv run python -m src.sandbox "Добавь книгу Хроники Зеленого Архива, Виктор Классик"
 
-# Start the runtime server
-uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
+   # Health: health-log event capture
+   uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
+   ```
+   *Expected behavior:* The CLI will parse, validate, and simulate saving to the in-memory database, outputting a complete routing trace and simulated agent response.
 
-# In another terminal, test the runtime server endpoints:
-# Health check
-curl -sS http://127.0.0.1:8000/health
-# Telegram Webhook endpoint
-curl -sS -X POST http://127.0.0.1:8000/webhook/telegram \
-  -H 'Content-Type: application/json' \
-  -d '{"message":{"text":"Добавь рецепт борща"}}'
-```
+3. **Run complete validation scenarios**
+   ```bash
+   # Run full mock scenarios for each domain
+   uv run python -m src.sandbox --scenario kitchen --full
+   uv run python -m src.sandbox --scenario books --full
+   uv run python -m src.sandbox --scenario health --full
+   ```
+
+4. **Smoke test the Runtime HTTP Server**
+   Start the local HTTP sandbox runtime server (emulates webhook integration):
+   ```bash
+   uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
+   ```
+   In another terminal, run these verification requests:
+   ```bash
+   # 1. Health check (Verify registered agents & server status)
+   curl -sS -i http://127.0.0.1:8000/health
+   # Expected response: HTTP 200 OK with registered agent names
+
+   # 2. Valid Webhook Payload (Simulate Telegram message routing)
+   curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
+     -H 'Content-Type: application/json' \
+     -d '{"message":{"text":"Добавь рецепт борща"}}'
+   # Expected response: HTTP 200 OK with routing details, extraction status, and the bot response
+
+   # 3. Invalid Webhook Payload (Verify error handling and controlled 400 response)
+   curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
+     -H 'Content-Type: application/json' \
+     -d '{"message":{}}'
+   # Expected response: HTTP 400 Bad Request with "Missing or invalid 'message' field" explanation
+   ```
 
 ### Path B: Optional Local Supabase
 Allows verifying database schemas, RLS policies, and SQL smoke scripts locally.
@@ -90,7 +116,7 @@ supabase stop
 
 To quickly evaluate the codebase, follow these key architectural maps and evidence documents:
 - **[Reviewer Guide](docs/REVIEWER_GUIDE.md)**: Detailed step-by-step local validation instructions.
-- **[Local Supabase Package](../../supabase/README.md)**: Public-safe ready-to-run local Supabase package containing migrations, RLS policies, seeds, and configuration.
+- **[Local Supabase Package](supabase/README.md)**: Public-safe ready-to-run local Supabase package containing migrations, RLS policies, seeds, and configuration.
 - **[Local Supabase Runbook](docs/RUNBOOK_LOCAL_SUPABASE.md)**: Guide on how to run a local Supabase / PostgreSQL instance to verify database boundaries and RLS policies.
 - **[Resume Claims Evidence](docs/RESUME_CLAIMS.md)**: Direct mapping of resume/portfolio statements to files and tests.
 - **[Private-to-Public Lineage](docs/PRIVATE_TO_PUBLIC_LINEAGE.md)**: Traceability map showing how this clean runtime relates to the production system.
