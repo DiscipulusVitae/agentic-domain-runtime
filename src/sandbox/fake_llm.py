@@ -95,7 +95,7 @@ class FakeLLMClient:
             if any(kw in msg_lower for kw in kitchen_keywords):
                 decision = {
                     "domain_id": "kitchen",
-                    "agent_id": "kitchen.assistant",
+                    "agent_id": "kitchen.recorder",
                     "intent": "add_dish",
                     "confidence": 0.92,
                     "input_kind": input_kind,
@@ -105,7 +105,7 @@ class FakeLLMClient:
             elif any(kw in msg_lower for kw in books_keywords):
                 decision = {
                     "domain_id": "books",
-                    "agent_id": "books.cataloger",
+                    "agent_id": "books.librarian",
                     "intent": "add_book",
                     "confidence": 0.90,
                     "input_kind": input_kind,
@@ -115,7 +115,7 @@ class FakeLLMClient:
             elif any(kw in msg_lower for kw in medical_keywords):
                 decision = {
                     "domain_id": "medical",
-                    "agent_id": "medical.recorder",
+                    "agent_id": "health.recorder",
                     "intent": "capture_medical",
                     "confidence": 0.91,
                     "input_kind": input_kind,
@@ -136,7 +136,7 @@ class FakeLLMClient:
             response_json = json.dumps(decision, ensure_ascii=False)
             return FakeResponse(text=response_json), "fake-model"
 
-        elif self.agent_id == "books.cataloger":
+        elif self.agent_id == "books.librarian":
             # Clean up typical command prefixes from the message first
             prefix_pattern = r'^(?:добавь(?:ть)?\s+(?:книгу\s+)?|добавить\s+(?:книгу\s+)?|книга\s+)'
             content_str = re.sub(prefix_pattern, '', message_str, flags=re.IGNORECASE).strip()
@@ -218,7 +218,7 @@ class FakeLLMClient:
             response_json = parsed_obj.model_dump_json()
             return FakeResponse(text=response_json, parsed=parsed_obj), "fake-model"
 
-        elif self.agent_id == "medical.recorder":
+        elif self.agent_id == "health.recorder":
             # Extract subject
             subject_key = None
             subject_label = None
@@ -333,7 +333,7 @@ class FakeLLMClient:
             response_json = parsed_obj.model_dump_json()
             return FakeResponse(text=response_json, parsed=parsed_obj), "fake-model"
 
-        elif self.agent_id == "kitchen.assistant":
+        elif self.agent_id == "kitchen.recorder":
             # Clean up typical command prefixes from the message first
             prefix_pattern = r'^(?:добавь(?:ть)?(?:\s+рецепт)?|добавить(?:\s+рецепт)?|запиши(?:ть)?(?:\s+рецепт)?|записать(?:\s+рецепт)?|рецепт)\b\s*'
             content_str = re.sub(prefix_pattern, '', message_str, flags=re.IGNORECASE).strip()

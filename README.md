@@ -56,6 +56,17 @@ uv run python -m src.sandbox "Запиши давление родственни
 uv run python -m src.sandbox --scenario kitchen --full
 uv run python -m src.sandbox --scenario books --full
 uv run python -m src.sandbox --scenario health --full
+
+# Start the runtime server
+uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
+
+# In another terminal, test the runtime server endpoints:
+# Health check
+curl -sS http://127.0.0.1:8000/health
+# Telegram Webhook endpoint
+curl -sS -X POST http://127.0.0.1:8000/webhook/telegram \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"text":"Добавь рецепт борща"}}'
 ```
 
 ### Path B: Optional Local Supabase

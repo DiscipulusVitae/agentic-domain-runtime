@@ -13,9 +13,9 @@ class ButlerDecision(BaseModel):
         default=None,
         description="Domain identifier: kitchen | books | medical | null"
     )
-    agent_id: Literal["kitchen.assistant", "books.cataloger", "medical.recorder", "core.butler"] = Field(
+    agent_id: Literal["kitchen.recorder", "books.librarian", "health.recorder", "core.butler"] = Field(
         default="core.butler",
-        description="Agent identifier: kitchen.assistant | books.cataloger | medical.recorder | core.butler"
+        description="Agent identifier: kitchen.recorder | books.librarian | health.recorder | core.butler"
     )
     intent: str = Field(description="Brief intent description in Russian")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence level 0.0-1.0")

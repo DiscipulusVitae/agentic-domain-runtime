@@ -10,7 +10,7 @@ async def test_kitchen_keyword_routing():
     classifier = ButlerClassifierService(llm_client=client)
     result = await classifier.classify("Добавь новый рецепт пирога")
     assert result.domain == "kitchen"
-    assert result.agent == "kitchen.assistant"
+    assert result.agent == "kitchen.recorder"
     assert result.confidence == 0.92
     assert not result.needs_clarification
 
@@ -22,7 +22,7 @@ async def test_books_keyword_routing():
     classifier = ButlerClassifierService(llm_client=client)
     result = await classifier.classify("Я прочитал интересную книгу вчера")
     assert result.domain == "books"
-    assert result.agent == "books.cataloger"
+    assert result.agent == "books.librarian"
     assert result.confidence == 0.90
     assert not result.needs_clarification
 
@@ -34,7 +34,7 @@ async def test_medical_keyword_routing():
     classifier = ButlerClassifierService(llm_client=client)
     result = await classifier.classify("Моё давление сегодня 120/80")
     assert result.domain == "medical"
-    assert result.agent == "medical.recorder"
+    assert result.agent == "health.recorder"
     assert result.confidence == 0.91
     assert not result.needs_clarification
 

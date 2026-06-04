@@ -48,7 +48,7 @@ async def test_cli_single_text_routing(capsys):
     assert "=== Sandbox Harness: Full Flow Run ===" in captured.out
     assert "Trace:  [routing: kitchen] -> [extraction: success] -> [validation: success] -> [persistence: saved (1 records)]" in captured.out
     assert "Domain:     kitchen" in captured.out
-    assert "Agent:      kitchen.assistant" in captured.out
+    assert "Agent:      kitchen.recorder" in captured.out
     assert "Confidence: 0.92" in captured.out
     assert "Success:      True" in captured.out
 
@@ -77,5 +77,5 @@ async def test_cli_run_scenario(capsys):
     captured = capsys.readouterr()
     assert "Запуск сценария: kitchen_scenarios.json" in captured.out
     assert "Expected Domain" in captured.out
-    assert "kitchen.assistant" in captured.out
+    assert "kitchen.recorder" in captured.out
     assert "Итог: 4 из 4 пройдено." in captured.out

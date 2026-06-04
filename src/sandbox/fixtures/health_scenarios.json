@@ -2,25 +2,25 @@
   {
     "input": "Запиши мое давление и пульс: 120/80, 70 уд/мин",
     "expected_domain": "medical",
-    "expected_agent": "medical.recorder",
+    "expected_agent": "health.recorder",
     "description": "Запись давления и пульса"
   },
   {
     "input": "Мой вес сегодня утром 75 кг",
     "expected_domain": "medical",
-    "expected_agent": "medical.recorder",
+    "expected_agent": "health.recorder",
     "description": "Запись веса"
   },
   {
     "input": "Вчера мой сон длился 8 часов",
     "expected_domain": "medical",
-    "expected_agent": "medical.recorder",
+    "expected_agent": "health.recorder",
     "description": "Запись сна"
   },
   {
     "input": "Сегодня я прошел 10000 шагов",
     "expected_domain": "medical",
-    "expected_agent": "medical.recorder",
+    "expected_agent": "health.recorder",
     "description": "Запись шагов"
   }
 ]

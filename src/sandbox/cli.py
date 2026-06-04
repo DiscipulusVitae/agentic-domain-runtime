@@ -195,6 +195,31 @@ async def run_scenario(scenario_path: Path, full: bool = False) -> None:
 
 
 async def async_main() -> None:
+    # Проверяем, если первая подкоманда - bootstrap
+    if len(sys.argv) > 1 and sys.argv[1] == "bootstrap":
+        bootstrap_parser = argparse.ArgumentParser(
+            prog="uv run python -m src.sandbox bootstrap",
+            description="Команды инициализации (bootstrap) для Runtime."
+        )
+        subparsers = bootstrap_parser.add_subparsers(dest="bootstrap_cmd", required=True)
+
+        doctor_parser = subparsers.add_parser("doctor", help="Проверить локальные зависимости")
+        doctor_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
+        plan_parser = subparsers.add_parser("plan", help="Сгенерировать план развертывания")
+        plan_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
+        args = bootstrap_parser.parse_args(sys.argv[2:])
+
+        from src.sandbox.bootstrap import run_doctor, run_plan
+        if args.bootstrap_cmd == "doctor":
+            sys.exit(run_doctor(json_mode=args.json))
+        elif args.bootstrap_cmd == "plan":
+            sys.exit(run_plan(json_mode=args.json))
+        return
+
+
+
     parser = argparse.ArgumentParser(
         description=(
             "CLI harness для тестирования Butler классификатора и доменных потоков в песочнице.\n\n"
@@ -203,6 +228,7 @@ async def async_main() -> None:
             "  2. Запуск сценария (--scenario) -> только классификация по умолчанию (требуется явный флаг --full).\n"
             "  3. Без аргументов -> чтение из stdin (если не интерактивный терминал), иначе вывод этой справки."
         ),
+
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
@@ -260,6 +286,33 @@ async def async_main() -> None:
 
 
 def main() -> None:
+    # Проверяем, если первая подкоманда - runtime
+    if len(sys.argv) > 1 and sys.argv[1] == "runtime":
+        runtime_parser = argparse.ArgumentParser(
+            prog="uv run python -m src.sandbox runtime",
+            description="Команды рантайма (runtime) для Sandbox."
+        )
+        subparsers = runtime_parser.add_subparsers(dest="runtime_cmd", required=True)
+
+        serve_parser = subparsers.add_parser("serve", help="Запустить HTTP сервер")
+        serve_parser.add_argument("--host", default="127.0.0.1", help="Хост для запуска (default: 127.0.0.1)")
+        serve_parser.add_argument("--port", type=int, default=8765, help="Порт для запуска (default: 8765)")
+
+        smoke_parser = subparsers.add_parser("smoke", help="Выполнить smoke тест сервера")
+        smoke_parser.add_argument("--url", default="http://127.0.0.1:8765", help="URL запущенного сервера")
+
+        args = runtime_parser.parse_args(sys.argv[2:])
+
+        if args.runtime_cmd == "serve":
+            from src.sandbox.runtime import serve
+            serve(host=args.host, port=args.port)
+            sys.exit(0)
+        elif args.runtime_cmd == "smoke":
+            from src.sandbox.runtime import run_smoke_test
+            success = run_smoke_test(args.url)
+            sys.exit(0 if success else 1)
+        return
+
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
