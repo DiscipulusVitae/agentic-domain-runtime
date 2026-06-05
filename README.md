@@ -95,6 +95,19 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    # Expected response: HTTP 400 Bad Request with "Missing or invalid 'message' field" explanation
    ```
 
+5. **Run bootstrap verification commands**
+   Verify local environment dependencies, inspect resource topology plans, or simulate configuration stages using dry-run deployment validation:
+   ```bash
+   # Verify dependencies
+   uv run python -m src.sandbox bootstrap doctor
+
+   # Inspect resource plan
+   uv run python -m src.sandbox bootstrap plan
+
+   # Dry-run apply stages (deterministic plan/checklist generation)
+   uv run python -m src.sandbox bootstrap apply --dry-run
+   ```
+
 ### Path B: Optional Local Supabase
 Allows verifying database schemas, RLS policies, and SQL smoke scripts locally.
 

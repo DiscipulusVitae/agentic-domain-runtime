@@ -209,13 +209,21 @@ async def async_main() -> None:
         plan_parser = subparsers.add_parser("plan", help="Сгенерировать план развертывания")
         plan_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
+        apply_parser = subparsers.add_parser("apply", help="Применить изменения развертывания")
+        apply_parser.add_argument("--dry-run", action="store_true", help="Показать план без реальных изменений")
+        apply_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
             sys.exit(run_plan(json_mode=args.json))
+        elif args.bootstrap_cmd == "apply":
+            if not args.dry_run:
+                bootstrap_parser.error("Команда apply требует указания флага --dry-run в текущей версии.")
+            sys.exit(run_apply(dry_run=args.dry_run, json_mode=args.json))
         return
 
 

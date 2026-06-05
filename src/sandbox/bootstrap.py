@@ -210,3 +210,110 @@ def run_plan(json_mode: bool) -> int:
         print("=" * 36)
 
     return 0
+
+
+def run_apply(dry_run: bool, json_mode: bool) -> int:
+    """Выполняет сухой расчет (dry-run) или применение изменений развертывания (apply)."""
+    if not dry_run:
+        print("Ошибка: На текущем этапе поддерживается только сухой запуск (--dry-run).", file=sys.stderr)
+        return 1
+
+    try:
+        cwd_path = str(Path.cwd().resolve())
+        suffix = hashlib.md5(cwd_path.encode()).hexdigest()[:6]
+    except Exception:
+        suffix = "default"
+
+    sb_project = f"adr-bootstrap-db-{suffix}"
+    sb_org = "adr-bootstrap-org"
+    render_service = f"adr-bootstrap-app-{suffix}"
+    render_env = f"adr-bootstrap-env-{suffix}"
+    webhook_url = f"https://{render_service}.onrender.com/telegram-webhook"
+
+    # Чек-лист шагов, которые были бы выполнены при live apply
+    stages = [
+        {
+            "stage": "supabase",
+            "description": "Настройка Supabase: проект и схема данных",
+            "actions": [
+                f"Создание проекта Supabase с именем '{sb_project}' в организации '{sb_org}'",
+                "Применение локальных миграций базы данных (supabase db push)"
+            ],
+            "status": "skipped",
+            "mutation_prevented": True
+        },
+        {
+            "stage": "render",
+            "description": "Настройка Render: веб-сервис и группа окружения",
+            "actions": [
+                f"Создание группы окружения '{render_env}'",
+                f"Создание веб-сервиса '{render_service}'",
+                "Связывание веб-сервиса с репозиторием и настройка переменных окружения (DATABASE_URL, BOT_TOKEN и др.)"
+            ],
+            "status": "skipped",
+            "mutation_prevented": True
+        },
+        {
+            "stage": "telegram",
+            "description": "Настройка Telegram: вебхук и команды бота",
+            "actions": [
+                f"Установка вебхука Telegram на адрес '{webhook_url}'",
+                "Регистрация списка команд бота через Telegram Bot API"
+            ],
+            "status": "skipped",
+            "mutation_prevented": True
+        },
+        {
+            "stage": "smoke_test",
+            "description": "Проверка работоспособности (Runtime Smoke Test)",
+            "actions": [
+                f"Выполнение тестового HTTP-запроса к '{webhook_url}/health' для проверки доступности рантайма"
+            ],
+            "status": "skipped",
+            "mutation_prevented": True
+        },
+        {
+            "stage": "state_policy",
+            "description": "Локальное состояние (Local Ignored State File Policy)",
+            "actions": [
+                "Сохранение метаданных развертывания (без секретов) в локальный файл состояния '.bootstrap-state.json'",
+                "Убедиться, что файл '.bootstrap-state.json' добавлен в '.gitignore'"
+            ],
+            "status": "skipped",
+            "mutation_prevented": True
+        },
+        {
+            "stage": "rollback_caveat",
+            "description": "Политика отката изменений (Rollback/Cleanup Caveat)",
+            "actions": [
+                "В случае сбоя на любом этапе live apply выполняется автоматический демонтаж созданных на текущем шаге облачных ресурсов (Render/Supabase) и сброс вебхука Telegram"
+            ],
+            "status": "skipped",
+            "mutation_prevented": True
+        }
+    ]
+
+    if json_mode:
+        output = {
+            "dry_run": True,
+            "message": "Это сухой запуск (dry-run). Изменения в облачных ресурсах не производились.",
+            "stages": stages
+        }
+        print(json.dumps(output, indent=2, ensure_ascii=False))
+    else:
+        print("=== ADR Bootstrap Apply (DRY-RUN) ===")
+        print("Внимание: Выполняется сухой запуск. Никаких изменений в реальной инфраструктуре не производится.")
+        print()
+
+        for idx, stage in enumerate(stages, 1):
+            print(f"{idx}. {stage['description']} [{stage['status'].upper()}]")
+            for action in stage['actions']:
+                print(f"   [ ] {action}")
+            print()
+
+        print("-" * 50)
+        print("Для выполнения реального развертывания потребуется отдельное подтверждение (live approval),")
+        print("которое сейчас заблокировано на уровне кода.")
+        print("=" * 38)
+
+    return 0

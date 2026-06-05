@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.sandbox.cli import async_main
-from src.sandbox.bootstrap import run_doctor, run_plan
+from src.sandbox.bootstrap import run_doctor, run_plan, run_apply
 
 
 def mock_subprocess_run_ok(args, **kwargs):
@@ -178,3 +178,61 @@ async def test_cli_bootstrap_doctor_render_with_update_notice(mock_run, capsys):
     assert data["status"] == "success"
     assert data["checks"]["render"]["status"] == "OK"
     assert data["checks"]["render"]["message"] == "Render CLI доступен (render v2.18.0)"
+
+
+@pytest.mark.asyncio
+async def test_cli_bootstrap_apply_dry_run(capsys):
+    """Проверяет успешный запуск команды apply --dry-run и человекочитаемый вывод."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--dry-run"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    out = captured.out
+    assert "=== ADR Bootstrap Apply (DRY-RUN) ===" in out
+    assert "Внимание: Выполняется сухой запуск. Никаких изменений в реальной инфраструктуре не производится." in out
+    assert "Настройка Supabase: проект и схема данных" in out
+    assert "Настройка Render: веб-сервис и группа окружения" in out
+    assert "Настройка Telegram: вебхук и команды бота" in out
+    assert "Проверка работоспособности (Runtime Smoke Test)" in out
+    assert "Локальное состояние (Local Ignored State File Policy)" in out
+    assert "Политика отката изменений (Rollback/Cleanup Caveat)" in out
+    assert "Для выполнения реального развертывания потребуется отдельное подтверждение" in out
+    # Проверка отсутствия плейсхолдеров секретов
+    assert ("TELEGRAM_" + "BOT_TOKEN=") not in out
+    assert ("RENDER_" + "API_KEY=") not in out
+    assert ("SUPABASE_" + "ACCESS_TOKEN=") not in out
+
+
+@pytest.mark.asyncio
+async def test_cli_bootstrap_apply_dry_run_json(capsys):
+    """Проверяет успешный запуск команды apply --dry-run --json и JSON вывод."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--dry-run", "--json"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["dry_run"] is True
+    assert "Это сухой запуск (dry-run)" in data["message"]
+
+    stages = {s["stage"]: s for s in data["stages"]}
+    assert len(stages) == 6
+    for key in ["supabase", "render", "telegram", "smoke_test", "state_policy", "rollback_caveat"]:
+        assert key in stages
+        assert stages[key]["status"] == "skipped"
+        assert stages[key]["mutation_prevented"] is True
+
+
+@pytest.mark.asyncio
+async def test_cli_bootstrap_apply_no_dry_run_fail(capsys):
+    """Проверяет, что запуск без --dry-run падает с соответствующей ошибкой."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code != 0
+
+    captured = capsys.readouterr()
+    assert "Команда apply требует указания флага --dry-run" in captured.err

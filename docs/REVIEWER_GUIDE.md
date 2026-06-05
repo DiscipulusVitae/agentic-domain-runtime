@@ -102,6 +102,24 @@ The sandbox also provides an HTTP server to simulate the webhook listener interf
      ```
      *Expected Response (HTTP 400 Bad Request):* JSON structure containing `"error": "Missing or invalid 'message' field"`.
 
+### 7. Runtime Bootstrap CLI Commands
+The codebase provides initialization utility commands to verify system requirements, visualize target topology, and dry-run apply configuration stages without making external network or cloud resource modifications:
+
+- **Doctor**: Run verification checks for local runtime dependencies (Python, Docker, Supabase, Render CLI):
+  ```bash
+  uv run python -m src.sandbox bootstrap doctor
+  ```
+
+- **Plan**: Generate a local-first read-only deployment plan topology:
+  ```bash
+  uv run python -m src.sandbox bootstrap plan
+  ```
+
+- **Apply (Dry-Run)**: Simulate the end-to-end cloud and Telegram application stages, returning a deterministic plan/checklist:
+  ```bash
+  uv run python -m src.sandbox bootstrap apply --dry-run
+  ```
+
 ---
 
 ## Path B: Optional Local Supabase Setup & Verification
