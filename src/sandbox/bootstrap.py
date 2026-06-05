@@ -138,8 +138,33 @@ def run_doctor(json_mode: bool) -> int:
     return 1 if has_fail else 0
 
 
-def run_plan(json_mode: bool) -> int:
-    """Выполняет сухой расчет плана развертывания (plan)."""
+class BootstrapPlanModel:
+    """Модель планирования развертывания (bootstrap plan)."""
+    def __init__(
+        self,
+        suffix: str,
+        supabase_project_name: str,
+        supabase_organization: str,
+        render_web_service_name: str,
+        render_environment_group: str,
+        webhook_target_url: str,
+        required_auth: list[str],
+        planned_env_vars: list[str],
+        stages: list[dict],
+    ):
+        self.suffix = suffix
+        self.supabase_project_name = supabase_project_name
+        self.supabase_organization = supabase_organization
+        self.render_web_service_name = render_web_service_name
+        self.render_environment_group = render_environment_group
+        self.webhook_target_url = webhook_target_url
+        self.required_auth = required_auth
+        self.planned_env_vars = planned_env_vars
+        self.stages = stages
+
+
+def generate_bootstrap_plan() -> BootstrapPlanModel:
+    """Генерирует согласованный план развертывания на основе текущей рабочей директории."""
     try:
         cwd_path = str(Path.cwd().resolve())
         suffix = hashlib.md5(cwd_path.encode()).hexdigest()[:6]
@@ -167,70 +192,6 @@ def run_plan(json_mode: bool) -> int:
         "RENDER_SERVICE_ID"
     ]
 
-    if json_mode:
-        output = {
-            "dry_run": True,
-            "resources": {
-                "supabase_project_name": sb_project,
-                "supabase_organization": sb_org,
-                "render_web_service_name": render_service,
-                "render_environment_group": render_env
-            },
-            "required_auth": required_auth,
-            "planned_env_vars": planned_env_vars,
-            "update_modes": {
-                "local": "polling",
-                "cloud": "webhook",
-                "webhook_target_url": webhook_url
-            }
-        }
-        print(json.dumps(output, indent=2, ensure_ascii=False))
-    else:
-        print("=== ADR Bootstrap Plan (DRY-RUN) ===")
-        print("Внимание: Это read-only симуляция. Никакие ресурсы в облаке не будут созданы.")
-        print()
-        print("1. Превью имен ресурсов:")
-        print(f"   - Supabase Project Name:      {sb_project}")
-        print(f"   - Supabase Database Org:      {sb_org}")
-        print(f"   - Render Web Service Name:    {render_service}")
-        print(f"   - Render Environment Group:   {render_env}")
-        print()
-        print("2. Чек-лист авторизации:")
-        for auth in required_auth:
-            print(f"   [ ] {auth}")
-        print()
-        print("3. Планируемые переменные окружения (только имена):")
-        for var in planned_env_vars:
-            print(f"   - {var}")
-        print()
-        print("4. Политика доставки обновлений (Webhook/Polling):")
-        print("   - Локальная разработка: Polling (TELEGRAM_UPDATE_MODE=polling)")
-        print("   - Облако (Render): Webhook (TELEGRAM_UPDATE_MODE=webhook)")
-        print(f"     Адрес вебхука: {webhook_url}")
-        print("=" * 36)
-
-    return 0
-
-
-def run_apply(dry_run: bool, json_mode: bool) -> int:
-    """Выполняет сухой расчет (dry-run) или применение изменений развертывания (apply)."""
-    if not dry_run:
-        print("Ошибка: На текущем этапе поддерживается только сухой запуск (--dry-run).", file=sys.stderr)
-        return 1
-
-    try:
-        cwd_path = str(Path.cwd().resolve())
-        suffix = hashlib.md5(cwd_path.encode()).hexdigest()[:6]
-    except Exception:
-        suffix = "default"
-
-    sb_project = f"adr-bootstrap-db-{suffix}"
-    sb_org = "adr-bootstrap-org"
-    render_service = f"adr-bootstrap-app-{suffix}"
-    render_env = f"adr-bootstrap-env-{suffix}"
-    webhook_url = f"https://{render_service}.onrender.com/telegram-webhook"
-
-    # Чек-лист шагов, которые были бы выполнены при live apply
     stages = [
         {
             "stage": "supabase",
@@ -293,11 +254,81 @@ def run_apply(dry_run: bool, json_mode: bool) -> int:
         }
     ]
 
+    return BootstrapPlanModel(
+        suffix=suffix,
+        supabase_project_name=sb_project,
+        supabase_organization=sb_org,
+        render_web_service_name=render_service,
+        render_environment_group=render_env,
+        webhook_target_url=webhook_url,
+        required_auth=required_auth,
+        planned_env_vars=planned_env_vars,
+        stages=stages
+    )
+
+
+def run_plan(json_mode: bool) -> int:
+    """Выполняет сухой расчет плана развертывания (plan)."""
+    plan = generate_bootstrap_plan()
+
+    if json_mode:
+        output = {
+            "dry_run": True,
+            "resources": {
+                "supabase_project_name": plan.supabase_project_name,
+                "supabase_organization": plan.supabase_organization,
+                "render_web_service_name": plan.render_web_service_name,
+                "render_environment_group": plan.render_environment_group
+            },
+            "required_auth": plan.required_auth,
+            "planned_env_vars": plan.planned_env_vars,
+            "update_modes": {
+                "local": "polling",
+                "cloud": "webhook",
+                "webhook_target_url": plan.webhook_target_url
+            }
+        }
+        print(json.dumps(output, indent=2, ensure_ascii=False))
+    else:
+        print("=== ADR Bootstrap Plan (DRY-RUN) ===")
+        print("Внимание: Это read-only симуляция. Никакие ресурсы в облаке не будут созданы.")
+        print()
+        print("1. Превью имен ресурсов:")
+        print(f"   - Supabase Project Name:      {plan.supabase_project_name}")
+        print(f"   - Supabase Database Org:      {plan.supabase_organization}")
+        print(f"   - Render Web Service Name:    {plan.render_web_service_name}")
+        print(f"   - Render Environment Group:   {plan.render_environment_group}")
+        print()
+        print("2. Чек-лист авторизации:")
+        for auth in plan.required_auth:
+            print(f"   [ ] {auth}")
+        print()
+        print("3. Планируемые переменные окружения (только имена):")
+        for var in plan.planned_env_vars:
+            print(f"   - {var}")
+        print()
+        print("4. Политика доставки обновлений (Webhook/Polling):")
+        print("   - Локальная разработка: Polling (TELEGRAM_UPDATE_MODE=polling)")
+        print("   - Облако (Render): Webhook (TELEGRAM_UPDATE_MODE=webhook)")
+        print(f"     Адрес вебхука: {plan.webhook_target_url}")
+        print("=" * 36)
+
+    return 0
+
+
+def run_apply(dry_run: bool, json_mode: bool) -> int:
+    """Выполняет сухой расчет (dry-run) или применение изменений развертывания (apply)."""
+    if not dry_run:
+        print("Ошибка: На текущем этапе поддерживается только сухой запуск (--dry-run).", file=sys.stderr)
+        return 1
+
+    plan = generate_bootstrap_plan()
+
     if json_mode:
         output = {
             "dry_run": True,
             "message": "Это сухой запуск (dry-run). Изменения в облачных ресурсах не производились.",
-            "stages": stages
+            "stages": plan.stages
         }
         print(json.dumps(output, indent=2, ensure_ascii=False))
     else:
@@ -305,7 +336,7 @@ def run_apply(dry_run: bool, json_mode: bool) -> int:
         print("Внимание: Выполняется сухой запуск. Никаких изменений в реальной инфраструктуре не производится.")
         print()
 
-        for idx, stage in enumerate(stages, 1):
+        for idx, stage in enumerate(plan.stages, 1):
             print(f"{idx}. {stage['description']} [{stage['status'].upper()}]")
             for action in stage['actions']:
                 print(f"   [ ] {action}")

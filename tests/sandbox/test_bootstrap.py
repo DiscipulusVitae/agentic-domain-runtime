@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.sandbox.cli import async_main
-from src.sandbox.bootstrap import run_doctor, run_plan, run_apply
+from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, generate_bootstrap_plan
 
 
 def mock_subprocess_run_ok(args, **kwargs):
@@ -236,3 +236,57 @@ async def test_cli_bootstrap_apply_no_dry_run_fail(capsys):
 
     captured = capsys.readouterr()
     assert "Команда apply требует указания флага --dry-run" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_plan_apply_consistency(capsys):
+    """Регрессионный тест для проверки согласованности plan и apply --dry-run."""
+    # Получаем вывод для plan --json
+    with patch("sys.argv", ["cli.py", "bootstrap", "plan", "--json"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+    captured_plan = capsys.readouterr()
+    plan_data = json.loads(captured_plan.out.strip())
+
+    # Получаем вывод для apply --dry-run --json
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--dry-run", "--json"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+    captured_apply = capsys.readouterr()
+    apply_data = json.loads(captured_apply.out.strip())
+
+    # Проверяем, что plan_data и apply_data корректные
+    assert plan_data["dry_run"] is True
+    assert apply_data["dry_run"] is True
+
+    # 1. Проверяем, что resource names совпадают
+    resources = plan_data["resources"]
+    sb_project = resources["supabase_project_name"]
+    sb_org = resources["supabase_organization"]
+    render_service = resources["render_web_service_name"]
+    render_env = resources["render_environment_group"]
+
+    # Собираем все тексты из описаний и действий стадий
+    all_stage_texts = []
+    for stage in apply_data["stages"]:
+        all_stage_texts.append(stage["description"])
+        all_stage_texts.extend(stage["actions"])
+    all_stage_text = " ".join(all_stage_texts)
+
+    # Имена ресурсов должны упоминаться в стадиях
+    assert sb_project in all_stage_text
+    assert sb_org in all_stage_text
+    assert render_service in all_stage_text
+    assert render_env in all_stage_text
+
+    # 2. Проверяем, что webhook URL совпадает
+    webhook_url = plan_data["update_modes"]["webhook_target_url"]
+    assert webhook_url in all_stage_text
+
+    # 3. Проверяем, что planned env var names совместимы со stage descriptions/actions
+    for var in plan_data["planned_env_vars"]:
+        # Проверяем, что ключевые переменные явно упомянуты в действиях стадий
+        if var in ["DATABASE_URL", "BOT_TOKEN"]:
+            assert var in all_stage_text
