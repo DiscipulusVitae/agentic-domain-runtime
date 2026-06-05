@@ -120,6 +120,11 @@ The codebase provides initialization utility commands to verify system requireme
   uv run python -m src.sandbox bootstrap apply --dry-run
   ```
 
+- **Smoke (Dry-Run)**: Simulate the post-deployment smoke validation checks (local & cloud health status, synthetic valid webhook payload, controlled invalid webhook payload) without executing network requests or Telegram API calls:
+  ```bash
+  uv run python -m src.sandbox bootstrap smoke --dry-run
+  ```
+
 ---
 
 ## Path B: Optional Local Supabase Setup & Verification

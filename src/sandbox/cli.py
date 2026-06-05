@@ -213,9 +213,13 @@ async def async_main() -> None:
         apply_parser.add_argument("--dry-run", action="store_true", help="Показать план без реальных изменений")
         apply_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
+        smoke_parser = subparsers.add_parser("smoke", help="Выполнить проверку работоспособности (smoke checks)")
+        smoke_parser.add_argument("--dry-run", action="store_true", help="Показать план проверок без реальных вызовов")
+        smoke_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -224,6 +228,10 @@ async def async_main() -> None:
             if not args.dry_run:
                 bootstrap_parser.error("Команда apply требует указания флага --dry-run в текущей версии.")
             sys.exit(run_apply(dry_run=args.dry_run, json_mode=args.json))
+        elif args.bootstrap_cmd == "smoke":
+            if not args.dry_run:
+                bootstrap_parser.error("Команда smoke требует указания флага --dry-run в текущей версии.")
+            sys.exit(run_smoke(dry_run=args.dry_run, json_mode=args.json))
         return
 
 

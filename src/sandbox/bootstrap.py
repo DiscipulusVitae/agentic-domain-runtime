@@ -348,3 +348,83 @@ def run_apply(dry_run: bool, json_mode: bool) -> int:
         print("=" * 38)
 
     return 0
+
+
+def run_smoke(dry_run: bool, json_mode: bool) -> int:
+    """Выполняет сухой запуск smoke-тестов (dry-run)."""
+    if not dry_run:
+        print("Ошибка: На текущем этапе поддерживается только сухой запуск (--dry-run).", file=sys.stderr)
+        return 1
+
+    plan = generate_bootstrap_plan()
+
+    # cloud health URL
+    cloud_health_url = plan.webhook_target_url.replace("/telegram-webhook", "/health")
+    local_health_url = "http://127.0.0.1:8765/health"
+
+    if json_mode:
+        output = {
+            "dry_run": True,
+            "message": "Это сухой запуск smoke-тестов (dry-run). Никакие внешние запросы не выполнялись.",
+            "checks": [
+                {
+                    "name": "local_runtime_health",
+                    "description": "Проверка локального рантайма (/health)",
+                    "target_url": local_health_url,
+                    "expected_status": 200
+                },
+                {
+                    "name": "cloud_runtime_health",
+                    "description": "Проверка облачного рантайма (/health)",
+                    "target_url": cloud_health_url,
+                    "expected_status": 200
+                },
+                {
+                    "name": "synthetic_telegram_webhook",
+                    "description": "Синтетический запрос к Telegram вебхуку с валидной нагрузкой",
+                    "target_url": plan.webhook_target_url,
+                    "expected_status": 200
+                },
+                {
+                    "name": "controlled_invalid_payload",
+                    "description": "Контролируемый запрос с невалидной нагрузкой (проверка возврата 400)",
+                    "target_url": plan.webhook_target_url,
+                    "expected_status": 400
+                }
+            ],
+            "final_status_classification": {
+                "success": "Все проверки вернули ожидаемые ответы (health и webhook отвечают корректно)",
+                "degraded_webhook": "Рантайм доступен (/health отвечает 200), но вебхук возвращает ошибки или недоступен",
+                "failure": "Рантайм полностью недоступен (/health возвращает ошибку или тайм-аут)"
+            }
+        }
+        print(json.dumps(output, indent=2, ensure_ascii=False))
+    else:
+        print("=== ADR Bootstrap Smoke (DRY-RUN) ===")
+        print("Внимание: Это read-only симуляция smoke-тестов. Никакие внешние запросы не выполнялись.")
+        print()
+        print("Планируемые проверки после развертывания:")
+        print("1. Локальный рантайм:")
+        print(f"   - Проверка: GET {local_health_url}")
+        print("   - Цель: Подтвердить, что локальный HTTP-сервер запущен и возвращает статус OK.")
+        print("2. Облачный рантайм:")
+        print(f"   - Проверка: GET {cloud_health_url}")
+        print("   - Цель: Подтвердить, что веб-сервис на Render успешно развернут и отвечает.")
+        print("3. Синтетический Telegram вебхук:")
+        print(f"   - Проверка: POST {plan.webhook_target_url}")
+        print("   - Полезная нагрузка: Валидный JSON обновления Telegram (с полем message.text).")
+        print("   - Цель: Убедиться в корректности обработки входящих сообщений от Telegram.")
+        print("4. Контролируемый некорректный запрос:")
+        print(f"   - Проверка: POST {plan.webhook_target_url}")
+        print("   - Полезная нагрузка: JSON без обязательного поля text.")
+        print("   - Цель: Проверить корректность валидации запроса и возврат кода 400 Bad Request.")
+        print()
+        print("Классификация итогового статуса (Final Status Classification):")
+        print("  - SUCCESS: Все проверки возвращают ожидаемые коды ответов (200 для успешных, 400 для некорректного запроса).")
+        print("  - DEGRADED WEBHOOK: GET-запросы к /health успешны, но POST-запросы к вебхуку завершаются ошибкой (проблемы с базой данных/токеном).")
+        print("  - FAILURE: Любой GET-запрос к /health возвращает ошибку или недоступен (сервис полностью лежит).")
+        print()
+        print("Никакие секреты не выводятся, реальные вызовы не производятся.")
+        print("=" * 38)
+
+    return 0
