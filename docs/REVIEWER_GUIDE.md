@@ -115,6 +115,11 @@ The codebase provides initialization utility commands to verify system requireme
   uv run python -m src.sandbox bootstrap plan
   ```
 
+- **Install (Dry-Run)**: Simulate the complete interactive installation wizard flow, sequentially verifying the 10-step wizard (checking requirements, showing auth guidance, Bot setup, plan, user approval boundary, dry-run apply, smoke test simulation, local ignored state policy) without gathering secrets or executing mutations:
+  ```bash
+  uv run python -m src.sandbox bootstrap install --dry-run
+  ```
+
 - **Apply (Dry-Run)**: Simulate the end-to-end cloud and Telegram application stages, returning a deterministic plan/checklist:
   ```bash
   uv run python -m src.sandbox bootstrap apply --dry-run

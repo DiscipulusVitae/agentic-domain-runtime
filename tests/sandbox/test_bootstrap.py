@@ -393,3 +393,82 @@ async def test_bootstrap_smoke_plan_consistency(capsys):
     assert checks["synthetic_telegram_webhook"]["target_url"] == webhook_url
     assert checks["controlled_invalid_payload"]["target_url"] == webhook_url
     assert checks["cloud_runtime_health"]["target_url"] == expected_cloud_health
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_ok)
+async def test_cli_bootstrap_install_dry_run(mock_run, capsys):
+    """Проверяет успешный запуск install --dry-run и человекочитаемый вывод (все 10 шагов)."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "install", "--dry-run"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    out = captured.out
+
+    assert "=== ADR Bootstrap Install Wizard (DRY-RUN) ===" in out
+    assert "1. Подготовительный чек-лист (Upfront Checklist):" in out
+    assert "2. Проверка локальных зависимостей (Doctor Prerequisites):" in out
+    assert "3. Руководство по авторизации Supabase (Supabase Auth Guidance):" in out
+    assert "4. Руководство по авторизации Render (Render Auth Guidance):" in out
+    assert "5. Регистрация бота в Telegram (Telegram Bot Setup):" in out
+    assert "6. Превью плана развертывания (Plan Preview):" in out
+    assert "7. Граница явного подтверждения (Explicit Approval Boundary):" in out
+    assert "8. Применение конфигурации (Apply Stage):" in out
+    assert "9. Проверка работоспособности (Smoke Stage):" in out
+    assert "10. Политика локального состояния (Local Ignored State Policy):" in out
+
+    # Проверка отсутствия плейсхолдеров секретов
+    assert ("TELEGRAM_" + "BOT_TOKEN=") not in out
+    assert ("RENDER_" + "API_KEY=") not in out
+    assert ("SUPABASE_" + "ACCESS_TOKEN=") not in out
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_ok)
+async def test_cli_bootstrap_install_dry_run_json(mock_run, capsys):
+    """Проверяет успешный запуск install --dry-run --json и JSON вывод."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "install", "--dry-run", "--json"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["dry_run"] is True
+    assert "Это сухой запуск мастера установки" in data["message"]
+
+    steps = {s["step"]: s for s in data["wizard_steps"]}
+    assert len(steps) == 10
+
+    expected_steps = [
+        "upfront_checklist",
+        "doctor_prerequisites",
+        "supabase_auth_guidance",
+        "render_auth_guidance",
+        "telegram_botfather_step",
+        "plan_preview",
+        "explicit_approval_boundary",
+        "apply_stage",
+        "smoke_stage",
+        "local_ignored_state_policy"
+    ]
+    for step_name in expected_steps:
+        assert step_name in steps
+        assert steps[step_name]["status"] == "success"
+
+    # Проверка отсутствия секретных значений
+    assert "token" not in captured.out.lower() or "запрашивается в install или через telegram_bot_token" in captured.out.lower()
+
+
+@pytest.mark.asyncio
+async def test_cli_bootstrap_install_no_dry_run_blocked(capsys):
+    """Проверяет, что запуск bootstrap install без --dry-run заблокирован."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "install"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code != 0
+
+    captured = capsys.readouterr()
+    assert "Команда install требует указания флага --dry-run" in captured.err

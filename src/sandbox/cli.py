@@ -217,9 +217,13 @@ async def async_main() -> None:
         smoke_parser.add_argument("--dry-run", action="store_true", help="Показать план проверок без реальных вызовов")
         smoke_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
+        install_parser = subparsers.add_parser("install", help="Запустить мастер установки (install wizard)")
+        install_parser.add_argument("--dry-run", action="store_true", help="Показать процесс установки без реальных изменений")
+        install_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -232,6 +236,10 @@ async def async_main() -> None:
             if not args.dry_run:
                 bootstrap_parser.error("Команда smoke требует указания флага --dry-run в текущей версии.")
             sys.exit(run_smoke(dry_run=args.dry_run, json_mode=args.json))
+        elif args.bootstrap_cmd == "install":
+            if not args.dry_run:
+                bootstrap_parser.error("Команда install требует указания флага --dry-run в текущей версии.")
+            sys.exit(run_install(dry_run=args.dry_run, json_mode=args.json))
         return
 
 

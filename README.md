@@ -104,8 +104,14 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    # Inspect resource plan
    uv run python -m src.sandbox bootstrap plan
 
+   # Simulate full installation wizard flow (10 key steps)
+   uv run python -m src.sandbox bootstrap install --dry-run
+
    # Dry-run apply stages (deterministic plan/checklist generation)
    uv run python -m src.sandbox bootstrap apply --dry-run
+
+   # Dry-run smoke test validation
+   uv run python -m src.sandbox bootstrap smoke --dry-run
    ```
 
 ### Path B: Optional Local Supabase
