@@ -139,6 +139,15 @@ The codebase provides initialization utility commands to verify system requireme
   uv run python -m src.sandbox bootstrap smoke --dry-run
   ```
 
+- **Supabase (Local Dry-Run)**: Run a local dry-run verification for Supabase local package files (config, migrations, seeds, smoke scripts) without starting docker or mutating schemas:
+  ```bash
+  uv run python -m src.sandbox bootstrap supabase --local --dry-run
+  ```
+  Or output in machine-readable JSON format:
+  ```bash
+  uv run python -m src.sandbox bootstrap supabase --local --dry-run --json
+  ```
+
 ---
 
 ## Path B: Optional Local Supabase Setup & Verification
@@ -146,6 +155,11 @@ The codebase provides initialization utility commands to verify system requireme
 For reviewers analyzing our PostgreSQL/Supabase boundaries, we provide a public-safe ready-to-run Supabase package, a local SQL smoke script, and a runbook:
 - Refer to **[Local Supabase Package](../supabase/README.md)** for local migrations, RLS policies, configuration, seeds, and the `smoke.sql` validation script.
 - Refer to the **[Local Supabase Runbook](RUNBOOK_LOCAL_SUPABASE.md)** for the optional local-first verification path guide.
+
+You can also run a safe preflight check to verify the presence of all required local Supabase configuration assets:
+```bash
+uv run python -m src.sandbox bootstrap supabase --local --dry-run
+```
 
 ---
 
