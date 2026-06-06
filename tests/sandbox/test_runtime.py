@@ -212,3 +212,85 @@ def test_cli_runtime_serve_subprocess():
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+
+
+def test_debug_storage_endpoint(server_url):
+    """Test GET /debug/storage returns counts and recent items correctly and safely."""
+    # 1. Fetch initial state
+    url = f"{server_url}/debug/storage"
+    with urllib.request.urlopen(url, timeout=5) as response:
+        assert response.getcode() == 200
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+
+        # Verify public-safe response shape
+        assert data.get("status") == "ok"
+        assert data.get("description") == "Sandbox-only in-memory storage observer"
+        assert "counts" in data
+        assert "recent_items" in data
+        assert "kitchen" in data["counts"]
+        assert "books" in data["counts"]
+        assert "medical" in data["counts"]
+        assert isinstance(data["recent_items"]["kitchen"], list)
+
+        # Ensure we don't leak credentials, env or secrets
+        body_lower = body.lower()
+        assert "token" not in body_lower
+        assert "key" not in body_lower
+        assert "secret" not in body_lower
+        assert "password" not in body_lower
+
+    initial_kitchen_count = data["counts"]["kitchen"]
+
+    # 2. Send a valid payload that increments the count
+    webhook_url = f"{server_url}/webhook/telegram"
+    valid_payload = {
+        "update_id": 1234,
+        "message": {
+            "message_id": 1,
+            "text": "Добавь рецепт борща"
+        }
+    }
+    req_data = json.dumps(valid_payload).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url,
+        data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.getcode() == 200
+
+    # 3. Verify count incremented
+    with urllib.request.urlopen(url, timeout=5) as response:
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+        after_valid_kitchen_count = data["counts"]["kitchen"]
+        assert after_valid_kitchen_count == initial_kitchen_count + 1
+        assert "борщ" in "".join(data["recent_items"]["kitchen"]).lower()
+
+    # 4. Send an invalid payload (expect 400)
+    invalid_payload = {
+        "update_id": 5678,
+        "message": {
+            "message_id": 2
+            # Missing text
+        }
+    }
+    req_data = json.dumps(invalid_payload).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url,
+        data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req, timeout=5)
+    assert exc_info.value.code == 400
+
+    # 5. Verify count did NOT increment
+    with urllib.request.urlopen(url, timeout=5) as response:
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+        after_invalid_kitchen_count = data["counts"]["kitchen"]
+        assert after_invalid_kitchen_count == after_valid_kitchen_count

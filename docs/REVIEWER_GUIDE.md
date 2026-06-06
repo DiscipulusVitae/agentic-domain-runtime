@@ -86,6 +86,12 @@ The sandbox also provides an HTTP server to simulate the webhook listener interf
      ```
      *Expected Response (HTTP 200 OK):* A JSON listing status "ok", active domains, and registered agent IDs.
 
+   - **Debug Storage Check** (sandbox-only endpoint to observe synthetic aggregate counts per domain):
+     ```bash
+     curl -sS -i http://127.0.0.1:8000/debug/storage
+     ```
+     *Expected Response (HTTP 200 OK):* JSON containing status, description, aggregate counts per domain, and lists of recent synthetic items.
+
    - **Valid Webhook Request** (simulates incoming Telegram message):
      ```bash
      curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
@@ -101,6 +107,9 @@ The sandbox also provides an HTTP server to simulate the webhook listener interf
        -d '{"message":{}}'
      ```
      *Expected Response (HTTP 400 Bad Request):* JSON structure containing `"error": "Missing or invalid 'message' field"`.
+
+Note: The `runtime smoke` command sequentially validates `/health`, `/debug/storage` initial counts, a valid synthetic webhook payload, the persistence count increment, and invalid payload error responses.
+
 
 ### 7. Runtime Bootstrap CLI Commands
 The codebase provides initialization utility commands to verify system requirements, visualize target topology, and dry-run apply configuration stages without making external network or cloud resource modifications:
