@@ -4,6 +4,8 @@ import threading
 import urllib.request
 import urllib.error
 import pytest
+import subprocess
+import sys
 from http.server import HTTPServer
 from src.sandbox.runtime import SandboxRuntimeHTTPRequestHandler
 
@@ -136,82 +138,101 @@ def test_webhook_telegram_invalid_payload(server_url):
     assert "message.text" in data["error"]
 
 
-def test_cli_runtime_serve_subprocess():
+@pytest.fixture
+def runtime_subprocess():
+    procs = []
+
+    def _run(cmd, **kwargs):
+        # On Linux, configure PDEATHSIG to kill the subprocess if the parent pytest process terminates.
+        if sys.platform.startswith("linux"):
+            def set_pdeathsig():
+                try:
+                    import ctypes
+                    libc = ctypes.CDLL("libc.so.6")
+                    # PR_SET_PDEATHSIG = 1, SIGTERM = 15
+                    libc.prctl(1, 15, 0, 0, 0)
+                except Exception:
+                    pass
+            kwargs.setdefault("preexec_fn", set_pdeathsig)
+
+        proc = subprocess.Popen(cmd, **kwargs)
+        procs.append(proc)
+        return proc
+
+    yield _run
+
+    for proc in procs:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+
+def test_cli_runtime_serve_subprocess(runtime_subprocess):
     """Regression test: Start runtime serve in a subprocess and send a Telegram webhook request."""
-    import shutil
-    import subprocess
-    import sys
     import time
 
     port = get_free_port()
-    uv_path = shutil.which("uv")
-    if uv_path:
-        cmd = [uv_path, "run", "python", "-m", "src.sandbox", "runtime", "serve", "--host", "127.0.0.1", "--port", str(port)]
-    else:
-        cmd = [sys.executable, "-m", "src.sandbox", "runtime", "serve", "--host", "127.0.0.1", "--port", str(port)]
+    # Always run sys.executable directly to avoid intermediate uv wrapper process
+    # which can result in orphaned runtime processes when terminated.
+    cmd = [sys.executable, "-m", "src.sandbox", "runtime", "serve", "--host", "127.0.0.1", "--port", str(port)]
 
-    # Start the server as a subprocess
-    proc = subprocess.Popen(
+    # Start the server as a subprocess via the cleanup-guaranteed fixture
+    proc = runtime_subprocess(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
 
-    try:
-        # Wait for the /health endpoint to become available
-        health_url = f"http://127.0.0.1:{port}/health"
-        start_time = time.time()
-        connected = False
-        while time.time() - start_time < 5.0:
-            if proc.poll() is not None:
-                stdout, stderr = proc.communicate()
-                raise RuntimeError(
-                    f"Subprocess terminated early with code {proc.returncode}.\n"
-                    f"STDOUT: {stdout.decode()}\n"
-                    f"STDERR: {stderr.decode()}"
-                )
-            try:
-                with urllib.request.urlopen(health_url, timeout=0.5) as response:
-                    if response.getcode() == 200:
-                        connected = True
-                        break
-            except Exception:
-                time.sleep(0.1)
-
-        if not connected:
-            raise RuntimeError("Timeout waiting for the server to start")
-
-        # Send a valid Telegram webhook request
-        webhook_url = f"http://127.0.0.1:{port}/webhook/telegram"
-        payload = {
-            "update_id": 5555,
-            "message": {
-                "message_id": 1,
-                "text": "Добавь рецепт борща"
-            }
-        }
-        req_data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            webhook_url,
-            data=req_data,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-
-        with urllib.request.urlopen(req, timeout=5) as response:
-            assert response.getcode() == 200
-            body = response.read().decode("utf-8")
-            data = json.loads(body)
-            assert "routing" in data
-            assert data["routing"]["agent_id"] == "kitchen.recorder"
-
-    finally:
-        proc.terminate()
+    # Wait for the /health endpoint to become available
+    health_url = f"http://127.0.0.1:{port}/health"
+    start_time = time.time()
+    connected = False
+    while time.time() - start_time < 5.0:
+        if proc.poll() is not None:
+            stdout, stderr = proc.communicate()
+            raise RuntimeError(
+                f"Subprocess terminated early with code {proc.returncode}.\n"
+                f"STDOUT: {stdout.decode()}\n"
+                f"STDERR: {stderr.decode()}"
+            )
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+            with urllib.request.urlopen(health_url, timeout=0.5) as response:
+                if response.getcode() == 200:
+                    connected = True
+                    break
+        except Exception:
+            time.sleep(0.1)
+
+    if not connected:
+        raise RuntimeError("Timeout waiting for the server to start")
+
+    # Send a valid Telegram webhook request
+    webhook_url = f"http://127.0.0.1:{port}/webhook/telegram"
+    payload = {
+        "update_id": 5555,
+        "message": {
+            "message_id": 1,
+            "text": "Добавь рецепт борща"
+        }
+    }
+    req_data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url,
+        data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.getcode() == 200
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+        assert "routing" in data
+        assert data["routing"]["agent_id"] == "kitchen.recorder"
 
 
 def test_debug_storage_endpoint(server_url):
