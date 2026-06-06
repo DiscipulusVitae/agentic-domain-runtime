@@ -157,6 +157,15 @@ The codebase provides initialization utility commands to verify system requireme
   uv run python -m src.sandbox bootstrap supabase --local --dry-run --json
   ```
 
+- **Telegram Webhook (Dry-Run)**: Run a dry-run verification of the Telegram bot setup and planned webhook configuration:
+  ```bash
+  uv run python -m src.sandbox bootstrap telegram --webhook --dry-run
+  ```
+  Or output in machine-readable JSON format:
+  ```bash
+  uv run python -m src.sandbox bootstrap telegram --webhook --dry-run --json
+  ```
+
 ---
 
 ## Path B: Optional Local Supabase Setup & Verification
