@@ -105,6 +105,15 @@ The sandbox also provides an HTTP server to simulate the webhook listener interf
 ### 7. Runtime Bootstrap CLI Commands
 The codebase provides initialization utility commands to verify system requirements, visualize target topology, and dry-run apply configuration stages without making external network or cloud resource modifications:
 
+- **Checks (Read-Only)**: Run read-only preflight checks for local environment readiness, credentials presence (without leaking values), target topology, and future API check descriptors without making mutations or executing network requests:
+  ```bash
+  uv run python -m src.sandbox bootstrap checks --read-only
+  ```
+  Or output in machine-readable JSON format:
+  ```bash
+  uv run python -m src.sandbox bootstrap checks --read-only --json
+  ```
+
 - **Doctor**: Run verification checks for local runtime dependencies (Python, Docker, Supabase, Render CLI):
   ```bash
   uv run python -m src.sandbox bootstrap doctor

@@ -221,9 +221,13 @@ async def async_main() -> None:
         install_parser.add_argument("--dry-run", action="store_true", help="Показать процесс установки без реальных изменений")
         install_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
+        checks_parser = subparsers.add_parser("checks", help="Выполнить read-only readiness проверки")
+        checks_parser.add_argument("--read-only", action="store_true", help="Обязательный флаг для подтверждения read-only режима")
+        checks_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -240,6 +244,10 @@ async def async_main() -> None:
             if not args.dry_run:
                 bootstrap_parser.error("Команда install требует указания флага --dry-run в текущей версии.")
             sys.exit(run_install(dry_run=args.dry_run, json_mode=args.json))
+        elif args.bootstrap_cmd == "checks":
+            if not args.read_only:
+                bootstrap_parser.error("Команда checks требует указания флага --read-only.")
+            sys.exit(run_checks(json_mode=args.json))
         return
 
 
