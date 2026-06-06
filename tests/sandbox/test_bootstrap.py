@@ -218,12 +218,16 @@ async def test_cli_bootstrap_apply_dry_run_json(capsys):
     assert data["dry_run"] is True
     assert "Это сухой запуск (dry-run)" in data["message"]
 
-    stages = {s["stage"]: s for s in data["stages"]}
-    assert len(stages) == 6
-    for key in ["supabase", "render", "telegram", "smoke_test", "state_policy", "rollback_caveat"]:
-        assert key in stages
-        assert stages[key]["status"] == "skipped"
-        assert stages[key]["mutation_prevented"] is True
+    steps = {s["step_id"]: s for s in data["steps"]}
+    assert len(steps) == 6
+    for key in ["supabase", "render", "telegram", "smoke_test"]:
+        assert key in steps
+        assert steps[key]["status"] == "mutation_prevented"
+        assert steps[key]["boundary"] == "future_live_mutation"
+    for key in ["state_policy", "rollback_caveat"]:
+        assert key in steps
+        assert steps[key]["status"] == "skipped"
+        assert steps[key]["boundary"] == "offline_dry_run"
 
 
 @pytest.mark.asyncio
@@ -270,9 +274,9 @@ async def test_bootstrap_plan_apply_consistency(capsys):
 
     # Собираем все тексты из описаний и действий стадий
     all_stage_texts = []
-    for stage in apply_data["stages"]:
-        all_stage_texts.append(stage["description"])
-        all_stage_texts.extend(stage["actions"])
+    for step in apply_data["steps"]:
+        all_stage_texts.append(step["name"])
+        all_stage_texts.extend(step["details"].get("actions", []))
     all_stage_text = " ".join(all_stage_texts)
 
     # Имена ресурсов должны упоминаться в стадиях
@@ -304,17 +308,17 @@ async def test_cli_bootstrap_smoke_dry_run(capsys):
     out = captured.out
     assert "=== ADR Bootstrap Smoke (DRY-RUN) ===" in out
     assert "Внимание: Это read-only симуляция smoke-тестов. Никакие внешние запросы не выполнялись." in out
-    assert "Локальный рантайм" in out
+    assert "Проверка локального рантайма" in out
     assert "http://127.0.0.1:8765/health" in out
-    assert "Облачный рантайм" in out
+    assert "Проверка облачного рантайма" in out
     assert "https://adr-bootstrap-app-" in out
     assert "/health" in out
-    assert "Синтетический Telegram вебхук" in out
+    assert "Синтетический запрос к Telegram вебхуку" in out
     assert "/telegram-webhook" in out
-    assert "Контролируемый некорректный запрос" in out
+    assert "Контролируемый запрос с невалидной нагрузкой" in out
     assert "Final Status Classification" in out
     assert "SUCCESS" in out
-    assert "DEGRADED WEBHOOK" in out
+    assert "DEGRADED_WEBHOOK" in out
     assert "FAILURE" in out
     assert "Никакие секреты не выводятся, реальные вызовы не производятся." in out
 
@@ -337,21 +341,25 @@ async def test_cli_bootstrap_smoke_dry_run_json(capsys):
     assert data["dry_run"] is True
     assert "Это сухой запуск smoke-тестов" in data["message"]
 
-    checks = {c["name"]: c for c in data["checks"]}
-    assert len(checks) == 4
-    assert "local_runtime_health" in checks
-    assert "cloud_runtime_health" in checks
-    assert "synthetic_telegram_webhook" in checks
-    assert "controlled_invalid_payload" in checks
+    steps = {s["step_id"]: s for s in data["steps"]}
+    assert len(steps) == 4
+    assert "local_runtime_health" in steps
+    assert "cloud_runtime_health" in steps
+    assert "synthetic_telegram_webhook" in steps
+    assert "controlled_invalid_payload" in steps
 
-    assert checks["local_runtime_health"]["expected_status"] == 200
-    assert checks["cloud_runtime_health"]["expected_status"] == 200
-    assert checks["synthetic_telegram_webhook"]["expected_status"] == 200
-    assert checks["controlled_invalid_payload"]["expected_status"] == 400
+    assert steps["local_runtime_health"]["details"]["expected_status"] == 200
+    assert steps["local_runtime_health"]["boundary"] == "read_only_external_checks"
+    assert steps["cloud_runtime_health"]["details"]["expected_status"] == 200
+    assert steps["cloud_runtime_health"]["boundary"] == "read_only_external_checks"
+    assert steps["synthetic_telegram_webhook"]["details"]["expected_status"] == 200
+    assert steps["synthetic_telegram_webhook"]["boundary"] == "future_live_mutation"
+    assert steps["controlled_invalid_payload"]["details"]["expected_status"] == 400
+    assert steps["controlled_invalid_payload"]["boundary"] == "future_live_mutation"
 
-    assert "success" in data["final_status_classification"]
-    assert "degraded_webhook" in data["final_status_classification"]
-    assert "failure" in data["final_status_classification"]
+    assert "success" in data["metadata"]["final_status_classification"]
+    assert "degraded_webhook" in data["metadata"]["final_status_classification"]
+    assert "failure" in data["metadata"]["final_status_classification"]
 
 
 @pytest.mark.asyncio
@@ -388,11 +396,11 @@ async def test_bootstrap_smoke_plan_consistency(capsys):
     webhook_url = plan_data["update_modes"]["webhook_target_url"]
     expected_cloud_health = webhook_url.replace("/telegram-webhook", "/health")
 
-    checks = {c["name"]: c for c in smoke_data["checks"]}
+    steps = {s["step_id"]: s for s in smoke_data["steps"]}
 
-    assert checks["synthetic_telegram_webhook"]["target_url"] == webhook_url
-    assert checks["controlled_invalid_payload"]["target_url"] == webhook_url
-    assert checks["cloud_runtime_health"]["target_url"] == expected_cloud_health
+    assert steps["synthetic_telegram_webhook"]["details"]["target_url"] == webhook_url
+    assert steps["controlled_invalid_payload"]["details"]["target_url"] == webhook_url
+    assert steps["cloud_runtime_health"]["details"]["target_url"] == expected_cloud_health
 
 
 @pytest.mark.asyncio
@@ -439,7 +447,7 @@ async def test_cli_bootstrap_install_dry_run_json(mock_run, capsys):
     assert data["dry_run"] is True
     assert "Это сухой запуск мастера установки" in data["message"]
 
-    steps = {s["step"]: s for s in data["wizard_steps"]}
+    steps = {s["step_id"]: s for s in data["steps"]}
     assert len(steps) == 10
 
     expected_steps = [
@@ -456,7 +464,17 @@ async def test_cli_bootstrap_install_dry_run_json(mock_run, capsys):
     ]
     for step_name in expected_steps:
         assert step_name in steps
-        assert steps[step_name]["status"] == "success"
+        if step_name in ["upfront_checklist", "doctor_prerequisites", "supabase_auth_guidance", "render_auth_guidance", "telegram_botfather_step", "plan_preview"]:
+            assert steps[step_name]["status"] == "ready"
+        elif step_name == "explicit_approval_boundary":
+            assert steps[step_name]["status"] == "requires_approval"
+            assert steps[step_name]["boundary"] == "human_approval_boundary"
+        elif step_name in ["apply_stage", "smoke_stage"]:
+            assert steps[step_name]["status"] == "mutation_prevented"
+            assert steps[step_name]["boundary"] == "future_live_mutation"
+        elif step_name == "local_ignored_state_policy":
+            assert steps[step_name]["status"] == "skipped"
+            assert steps[step_name]["boundary"] == "offline_dry_run"
 
     # Проверка отсутствия секретных значений
     assert "token" not in captured.out.lower() or "запрашивается в install или через telegram_bot_token" in captured.out.lower()

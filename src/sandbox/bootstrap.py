@@ -138,6 +138,66 @@ def run_doctor(json_mode: bool) -> int:
     return 1 if has_fail else 0
 
 
+class BootstrapStep:
+    """Базовый класс для шагов процесса инициализации (bootstrap)."""
+    boundary: str = ""
+
+    def __init__(self, step_id: str, name: str, status: str, message: str, details: dict = None):
+        self.step_id = step_id
+        self.name = name
+        # status: ready, blocked, skipped, requires_approval, mutation_prevented
+        self.status = status
+        self.message = message
+        self.details = details or {}
+
+    def to_dict(self) -> dict:
+        return {
+            "step_id": self.step_id,
+            "name": self.name,
+            "status": self.status,
+            "boundary": self.boundary,
+            "message": self.message,
+            "details": self.details,
+        }
+
+
+class OfflineDryRunStep(BootstrapStep):
+    """Шаг, выполняемый полностью локально без внешних запросов."""
+    boundary: str = "offline_dry_run"
+
+
+class ReadOnlyExternalCheckStep(BootstrapStep):
+    """Шаг, выполняющий внешние read-only проверки (например, проверка прав CLI или доступности API)."""
+    boundary: str = "read_only_external_checks"
+
+
+class FutureLiveMutationStep(BootstrapStep):
+    """Шаг, выполняющий мутирующие действия в облаке (создание ресурсов, вебхуков)."""
+    boundary: str = "future_live_mutation"
+
+
+class HumanApprovalBoundaryStep(BootstrapStep):
+    """Шаг, требующий явного подтверждения человека (human approval)."""
+    boundary: str = "human_approval_boundary"
+
+
+class BootstrapState:
+    """Единая модель состояния процесса инициализации (bootstrap state)."""
+    def __init__(self, dry_run: bool, message: str, steps: list[BootstrapStep], metadata: dict = None):
+        self.dry_run = dry_run
+        self.message = message
+        self.steps = steps
+        self.metadata = metadata or {}
+
+    def to_dict(self) -> dict:
+        return {
+            "dry_run": self.dry_run,
+            "message": self.message,
+            "steps": [step.to_dict() for step in self.steps],
+            "metadata": self.metadata,
+        }
+
+
 class BootstrapPlanModel:
     """Модель планирования развертывания (bootstrap plan)."""
     def __init__(
@@ -324,22 +384,78 @@ def run_apply(dry_run: bool, json_mode: bool) -> int:
 
     plan = generate_bootstrap_plan()
 
-    if json_mode:
-        output = {
-            "dry_run": True,
-            "message": "Это сухой запуск (dry-run). Изменения в облачных ресурсах не производились.",
-            "stages": plan.stages
+    steps = [
+        FutureLiveMutationStep(
+            step_id="supabase",
+            name="Настройка Supabase: проект и схема данных",
+            status="mutation_prevented",
+            message="Создание проекта Supabase и применение миграций базы данных заблокировано в dry-run",
+            details={"actions": plan.stages[0]["actions"]}
+        ),
+        FutureLiveMutationStep(
+            step_id="render",
+            name="Настройка Render: веб-сервис и группа окружения",
+            status="mutation_prevented",
+            message="Создание веб-сервиса Render и группы окружения заблокировано в dry-run",
+            details={"actions": plan.stages[1]["actions"]}
+        ),
+        FutureLiveMutationStep(
+            step_id="telegram",
+            name="Настройка Telegram: вебхук и команды бота",
+            status="mutation_prevented",
+            message="Установка вебхука Telegram заблокирована в dry-run",
+            details={"actions": plan.stages[2]["actions"]}
+        ),
+        FutureLiveMutationStep(
+            step_id="smoke_test",
+            name="Проверка работоспособности (Runtime Smoke Test)",
+            status="mutation_prevented",
+            message="Выполнение smoke-тестов заблокировано в dry-run",
+            details={"actions": plan.stages[3]["actions"]}
+        ),
+        OfflineDryRunStep(
+            step_id="state_policy",
+            name="Локальное состояние (Local Ignored State File Policy)",
+            status="skipped",
+            message="Сохранение локального файла состояния пропущено в dry-run",
+            details={"actions": plan.stages[4]["actions"]}
+        ),
+        OfflineDryRunStep(
+            step_id="rollback_caveat",
+            name="Политика отката изменений (Rollback/Cleanup Caveat)",
+            status="skipped",
+            message="Автоматический откат не требуется в dry-run",
+            details={"actions": plan.stages[5]["actions"]}
+        ),
+    ]
+
+    state = BootstrapState(
+        dry_run=True,
+        message="Это сухой запуск (dry-run). Изменения в облачных ресурсах не производились.",
+        steps=steps,
+        metadata={
+            "resources": {
+                "supabase_project_name": plan.supabase_project_name,
+                "supabase_organization": plan.supabase_organization,
+                "render_web_service_name": plan.render_web_service_name,
+                "render_environment_group": plan.render_environment_group
+            }
         }
-        print(json.dumps(output, indent=2, ensure_ascii=False))
+    )
+
+    if json_mode:
+        print(json.dumps(state.to_dict(), indent=2, ensure_ascii=False))
     else:
         print("=== ADR Bootstrap Apply (DRY-RUN) ===")
         print("Внимание: Выполняется сухой запуск. Никаких изменений в реальной инфраструктуре не производится.")
         print()
 
-        for idx, stage in enumerate(plan.stages, 1):
-            print(f"{idx}. {stage['description']} [{stage['status'].upper()}]")
-            for action in stage['actions']:
-                print(f"   [ ] {action}")
+        for idx, step in enumerate(state.steps, 1):
+            print(f"{idx}. {step.name} [{step.status.upper()}] (Boundary: {step.boundary})")
+            print(f"   Сообщение: {step.message}")
+            if "actions" in step.details:
+                for action in step.details["actions"]:
+                    print(f"   [ ] {action}")
             print()
 
         print("-" * 50)
@@ -358,71 +474,83 @@ def run_smoke(dry_run: bool, json_mode: bool) -> int:
 
     plan = generate_bootstrap_plan()
 
-    # cloud health URL
     cloud_health_url = plan.webhook_target_url.replace("/telegram-webhook", "/health")
     local_health_url = "http://127.0.0.1:8765/health"
 
-    if json_mode:
-        output = {
-            "dry_run": True,
-            "message": "Это сухой запуск smoke-тестов (dry-run). Никакие внешние запросы не выполнялись.",
-            "checks": [
-                {
-                    "name": "local_runtime_health",
-                    "description": "Проверка локального рантайма (/health)",
-                    "target_url": local_health_url,
-                    "expected_status": 200
-                },
-                {
-                    "name": "cloud_runtime_health",
-                    "description": "Проверка облачного рантайма (/health)",
-                    "target_url": cloud_health_url,
-                    "expected_status": 200
-                },
-                {
-                    "name": "synthetic_telegram_webhook",
-                    "description": "Синтетический запрос к Telegram вебхуку с валидной нагрузкой",
-                    "target_url": plan.webhook_target_url,
-                    "expected_status": 200
-                },
-                {
-                    "name": "controlled_invalid_payload",
-                    "description": "Контролируемый запрос с невалидной нагрузкой (проверка возврата 400)",
-                    "target_url": plan.webhook_target_url,
-                    "expected_status": 400
-                }
-            ],
+    steps = [
+        ReadOnlyExternalCheckStep(
+            step_id="local_runtime_health",
+            name="Проверка локального рантайма (/health)",
+            status="skipped",
+            message="Запрос к локальному рантайму пропущен в dry-run",
+            details={
+                "target_url": local_health_url,
+                "expected_status": 200
+            }
+        ),
+        ReadOnlyExternalCheckStep(
+            step_id="cloud_runtime_health",
+            name="Проверка облачного рантайма (/health)",
+            status="skipped",
+            message="Запрос к облачному рантайму пропущен в dry-run",
+            details={
+                "target_url": cloud_health_url,
+                "expected_status": 200
+            }
+        ),
+        FutureLiveMutationStep(
+            step_id="synthetic_telegram_webhook",
+            name="Синтетический запрос к Telegram вебхуку с валидной нагрузкой",
+            status="mutation_prevented",
+            message="Запрос к вебхуку заблокирован в dry-run",
+            details={
+                "target_url": plan.webhook_target_url,
+                "expected_status": 200
+            }
+        ),
+        FutureLiveMutationStep(
+            step_id="controlled_invalid_payload",
+            name="Контролируемый запрос с невалидной нагрузкой (проверка возврата 400)",
+            status="mutation_prevented",
+            message="Некорректный запрос к вебхуку заблокирован в dry-run",
+            details={
+                "target_url": plan.webhook_target_url,
+                "expected_status": 400
+            }
+        )
+    ]
+
+    state = BootstrapState(
+        dry_run=True,
+        message="Это сухой запуск smoke-тестов (dry-run). Никакие внешние запросы не выполнялись.",
+        steps=steps,
+        metadata={
             "final_status_classification": {
                 "success": "Все проверки вернули ожидаемые ответы (health и webhook отвечают корректно)",
                 "degraded_webhook": "Рантайм доступен (/health отвечает 200), но вебхук возвращает ошибки или недоступен",
                 "failure": "Рантайм полностью недоступен (/health возвращает ошибку или тайм-аут)"
             }
         }
-        print(json.dumps(output, indent=2, ensure_ascii=False))
+    )
+
+    if json_mode:
+        print(json.dumps(state.to_dict(), indent=2, ensure_ascii=False))
     else:
         print("=== ADR Bootstrap Smoke (DRY-RUN) ===")
         print("Внимание: Это read-only симуляция smoke-тестов. Никакие внешние запросы не выполнялись.")
         print()
         print("Планируемые проверки после развертывания:")
-        print("1. Локальный рантайм:")
-        print(f"   - Проверка: GET {local_health_url}")
-        print("   - Цель: Подтвердить, что локальный HTTP-сервер запущен и возвращает статус OK.")
-        print("2. Облачный рантайм:")
-        print(f"   - Проверка: GET {cloud_health_url}")
-        print("   - Цель: Подтвердить, что веб-сервис на Render успешно развернут и отвечает.")
-        print("3. Синтетический Telegram вебхук:")
-        print(f"   - Проверка: POST {plan.webhook_target_url}")
-        print("   - Полезная нагрузка: Валидный JSON обновления Telegram (с полем message.text).")
-        print("   - Цель: Убедиться в корректности обработки входящих сообщений от Telegram.")
-        print("4. Контролируемый некорректный запрос:")
-        print(f"   - Проверка: POST {plan.webhook_target_url}")
-        print("   - Полезная нагрузка: JSON без обязательного поля text.")
-        print("   - Цель: Проверить корректность валидации запроса и возврат кода 400 Bad Request.")
-        print()
+
+        for idx, step in enumerate(state.steps, 1):
+            print(f"{idx}. {step.name} [{step.status.upper()}] (Boundary: {step.boundary})")
+            print(f"   Цель: {step.message}")
+            print(f"   Адрес: {step.details.get('target_url')}")
+            print(f"   Ожидаемый статус: {step.details.get('expected_status')}")
+            print()
+
         print("Классификация итогового статуса (Final Status Classification):")
-        print("  - SUCCESS: Все проверки возвращают ожидаемые коды ответов (200 для успешных, 400 для некорректного запроса).")
-        print("  - DEGRADED WEBHOOK: GET-запросы к /health успешны, но POST-запросы к вебхуку завершаются ошибкой (проблемы с базой данных/токеном).")
-        print("  - FAILURE: Любой GET-запрос к /health возвращает ошибку или недоступен (сервис полностью лежит).")
+        for key, desc in state.metadata["final_status_classification"].items():
+            print(f"  - {key.upper()}: {desc}")
         print()
         print("Никакие секреты не выводятся, реальные вызовы не производятся.")
         print("=" * 38)
@@ -436,7 +564,6 @@ def run_install(dry_run: bool, json_mode: bool) -> int:
         print("Ошибка: На текущем этапе поддерживается только сухой запуск (--dry-run).", file=sys.stderr)
         return 1
 
-    # Шаг 2 (doctor prerequisites) - собираем результаты
     checks = {}
     status_py, msg_py = check_python()
     checks["python"] = {"status": status_py, "message": msg_py}
@@ -453,10 +580,8 @@ def run_install(dry_run: bool, json_mode: bool) -> int:
     status_render, msg_render = check_render()
     checks["render"] = {"status": status_render, "message": msg_render}
 
-    # Шаг 6 (plan preview) - генерируем план
     plan = generate_bootstrap_plan()
 
-    # Шаг 9 (smoke stage) - проверки
     cloud_health_url = plan.webhook_target_url.replace("/telegram-webhook", "/health")
     local_health_url = "http://127.0.0.1:8765/health"
     smoke_checks = [
@@ -486,103 +611,110 @@ def run_install(dry_run: bool, json_mode: bool) -> int:
         }
     ]
 
+    doctor_failed = any(info["status"] == "FAIL" for info in checks.values())
+
+    steps = [
+        OfflineDryRunStep(
+            step_id="upfront_checklist",
+            name="Подготовительный чек-лист перед установкой",
+            status="ready",
+            message="Чек-лист подготовки перед установкой",
+            details={
+                "prerequisites": [
+                    "Docker CLI & Daemon",
+                    "uv package manager",
+                    "Supabase CLI",
+                    "Render CLI",
+                    "Telegram аккаунт и доступ к @BotFather"
+                ]
+            }
+        ),
+        OfflineDryRunStep(
+            step_id="doctor_prerequisites",
+            name="Проверка локального окружения",
+            status="blocked" if doctor_failed else "ready",
+            message="Критические проблемы не обнаружены" if not doctor_failed else "Обнаружены критические проблемы в локальном окружении",
+            details={"checks": checks}
+        ),
+        ReadOnlyExternalCheckStep(
+            step_id="supabase_auth_guidance",
+            name="Supabase авторизация",
+            status="ready",
+            message="Supabase авторизация: используйте 'supabase login' или SUPABASE_ACCESS_TOKEN"
+        ),
+        ReadOnlyExternalCheckStep(
+            step_id="render_auth_guidance",
+            name="Render авторизация",
+            status="ready",
+            message="Render авторизация: используйте 'render login' или RENDER_API_KEY"
+        ),
+        ReadOnlyExternalCheckStep(
+            step_id="telegram_botfather_step",
+            name="Telegram Bot Setup",
+            status="ready",
+            message="Telegram Bot Setup: создание бота у @BotFather и сохранение токена без вывода секретов"
+        ),
+        OfflineDryRunStep(
+            step_id="plan_preview",
+            name="Превью плана развертывания",
+            status="ready",
+            message="Превью плана развертывания",
+            details={
+                "resources": {
+                    "supabase_project_name": plan.supabase_project_name,
+                    "supabase_organization": plan.supabase_organization,
+                    "render_web_service_name": plan.render_web_service_name,
+                    "render_environment_group": plan.render_environment_group
+                },
+                "required_auth": plan.required_auth,
+                "planned_env_vars": plan.planned_env_vars,
+                "webhook_target_url": plan.webhook_target_url
+            }
+        ),
+        HumanApprovalBoundaryStep(
+            step_id="explicit_approval_boundary",
+            name="Граница явного подтверждения пользователя перед развертыванием",
+            status="requires_approval",
+            message="Требуется явное подтверждение пользователя для выполнения live mutation. В dry-run одобрено автоматически."
+        ),
+        FutureLiveMutationStep(
+            step_id="apply_stage",
+            name="Сухой запуск применения конфигурации",
+            status="mutation_prevented",
+            message="Применение конфигурации заблокировано в dry-run",
+            details={"stages": plan.stages}
+        ),
+        FutureLiveMutationStep(
+            step_id="smoke_stage",
+            name="Сухой запуск проверки работоспособности",
+            status="mutation_prevented",
+            message="Проверка работоспособности заблокирована в dry-run",
+            details={"checks": smoke_checks}
+        ),
+        OfflineDryRunStep(
+            step_id="local_ignored_state_policy",
+            name="Политика локального состояния",
+            status="skipped",
+            message="Запись метаданных в '.bootstrap-state.json' пропущена в dry-run"
+        )
+    ]
+
+    state = BootstrapState(
+        dry_run=True,
+        message="Это сухой запуск мастера установки (dry-run). Изменения не вносились.",
+        steps=steps
+    )
+
     if json_mode:
-        output = {
-            "dry_run": True,
-            "message": "Это сухой запуск мастера установки (dry-run). Изменения не вносились.",
-            "wizard_steps": [
-                {
-                    "step": "upfront_checklist",
-                    "status": "success",
-                    "message": "Чек-лист подготовки перед установкой",
-                    "details": {
-                        "prerequisites": [
-                            "Docker CLI & Daemon",
-                            "uv package manager",
-                            "Supabase CLI",
-                            "Render CLI",
-                            "Telegram аккаунт и доступ к @BotFather"
-                        ]
-                    }
-                },
-                {
-                    "step": "doctor_prerequisites",
-                    "status": "failed" if any(info["status"] == "FAIL" for info in checks.values()) else "success",
-                    "message": "Проверка локального окружения",
-                    "details": {
-                        "checks": checks
-                    }
-                },
-                {
-                    "step": "supabase_auth_guidance",
-                    "status": "success",
-                    "message": "Supabase авторизация: используйте 'supabase login' или SUPABASE_ACCESS_TOKEN"
-                },
-                {
-                    "step": "render_auth_guidance",
-                    "status": "success",
-                    "message": "Render авторизация: используйте 'render login' или RENDER_API_KEY"
-                },
-                {
-                    "step": "telegram_botfather_step",
-                    "status": "success",
-                    "message": "Telegram Bot Setup: создание бота у @BotFather и сохранение токена без вывода секретов"
-                },
-                {
-                    "step": "plan_preview",
-                    "status": "success",
-                    "message": "Превью плана развертывания",
-                    "details": {
-                        "resources": {
-                            "supabase_project_name": plan.supabase_project_name,
-                            "supabase_organization": plan.supabase_organization,
-                            "render_web_service_name": plan.render_web_service_name,
-                            "render_environment_group": plan.render_environment_group
-                        },
-                        "required_auth": plan.required_auth,
-                        "planned_env_vars": plan.planned_env_vars,
-                        "webhook_target_url": plan.webhook_target_url
-                    }
-                },
-                {
-                    "step": "explicit_approval_boundary",
-                    "status": "success",
-                    "message": "Граница явного подтверждения пользователя перед развертыванием"
-                },
-                {
-                    "step": "apply_stage",
-                    "status": "success",
-                    "message": "Сухой запуск применения конфигурации",
-                    "details": {
-                        "stages": plan.stages
-                    }
-                },
-                {
-                    "step": "smoke_stage",
-                    "status": "success",
-                    "message": "Сухой запуск проверки работоспособности",
-                    "details": {
-                        "checks": smoke_checks
-                    }
-                },
-                {
-                    "step": "local_ignored_state_policy",
-                    "status": "success",
-                    "message": "Политика локального состояния: запись метаданных в '.bootstrap-state.json' и добавление в '.gitignore' (без секретов)"
-                }
-            ]
-        }
-        print(json.dumps(output, indent=2, ensure_ascii=False))
+        print(json.dumps(state.to_dict(), indent=2, ensure_ascii=False))
     else:
         print("=== ADR Bootstrap Install Wizard (DRY-RUN) ===")
         print("Внимание: Выполняется сухой запуск мастера установки. Реальные изменения не вносятся.")
         print()
 
         print("1. Подготовительный чек-лист (Upfront Checklist):")
-        print("   [ ] Наличие установленного Docker CLI & Daemon")
-        print("   [ ] Установленный менеджер пакетов uv")
-        print("   [ ] Доступность CLI инструментов Supabase и Render")
-        print("   [ ] Доступ к Telegram @BotFather для создания нового бота")
+        for prereq in steps[0].details["prerequisites"]:
+            print(f"   [ ] {prereq}")
         print()
 
         print("2. Проверка локальных зависимостей (Doctor Prerequisites):")
@@ -591,36 +723,33 @@ def run_install(dry_run: bool, json_mode: bool) -> int:
         print()
 
         print("3. Руководство по авторизации Supabase (Supabase Auth Guidance):")
-        print("   - Выполните локально 'supabase login' для входа")
-        print("   - Либо установите переменную окружения SUPABASE_ACCESS_TOKEN")
+        print(f"   - {steps[2].message}")
         print()
 
         print("4. Руководство по авторизации Render (Render Auth Guidance):")
-        print("   - Настройте Render CLI с помощью 'render login'")
-        print("   - Либо установите переменную окружения RENDER_API_KEY")
+        print(f"   - {steps[3].message}")
         print()
 
         print("5. Регистрация бота в Telegram (Telegram Bot Setup):")
-        print("   - Создайте бота через диалог с @BotFather в Telegram")
-        print("   - Получите токен бота (в dry-run режиме токен не запрашивается и не сохраняется)")
+        print(f"   - {steps[4].message}")
         print()
 
         print("6. Превью плана развертывания (Plan Preview):")
-        print(f"   - Supabase Project Name:      {plan.supabase_project_name}")
-        print(f"   - Supabase Database Org:      {plan.supabase_organization}")
-        print(f"   - Render Web Service Name:    {plan.render_web_service_name}")
-        print(f"   - Render Environment Group:   {plan.render_environment_group}")
+        preview_details = steps[5].details
+        print(f"   - Supabase Project Name:      {preview_details['resources']['supabase_project_name']}")
+        print(f"   - Supabase Database Org:      {preview_details['resources']['supabase_organization']}")
+        print(f"   - Render Web Service Name:    {preview_details['resources']['render_web_service_name']}")
+        print(f"   - Render Environment Group:   {preview_details['resources']['render_environment_group']}")
         print("   - Необходимая авторизация:")
-        for auth in plan.required_auth:
+        for auth in preview_details["required_auth"]:
             print(f"     * {auth}")
         print("   - Планируемые переменные окружения:")
-        for var in plan.planned_env_vars:
+        for var in preview_details["planned_env_vars"]:
             print(f"     * {var}")
         print()
 
         print("7. Граница явного подтверждения (Explicit Approval Boundary):")
-        print("   - Внимание: Для live-установки потребуется ручной ввод 'yes' для согласия с планом.")
-        print("   - [DRY-RUN] Одобрено автоматически.")
+        print(f"   - {steps[6].message}")
         print()
 
         print("8. Применение конфигурации (Apply Stage):")
@@ -639,9 +768,7 @@ def run_install(dry_run: bool, json_mode: bool) -> int:
         print()
 
         print("10. Политика локального состояния (Local Ignored State Policy):")
-        print("    - Метаданные установки будут сохранены в локальный файл '.bootstrap-state.json'")
-        print("    - Секретные значения (такие как TELEGRAM_BOT_TOKEN) никогда не сохраняются в этот файл")
-        print("    - Файл '.bootstrap-state.json' автоматически добавляется в '.gitignore'")
+        print(f"    - {steps[9].message}")
         print()
         print("=" * 46)
 
