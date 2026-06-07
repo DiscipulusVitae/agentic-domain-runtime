@@ -12,7 +12,7 @@ The codebase operates in distinct modes to allow safe review at different levels
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Offline** | **No** | **No** | **None** (In-memory mock only) | Offline logic verification, tests, and CLI mock runs | `pytest`, `--scenario <domain> --full`, `runtime serve` |
 | **Read-Only** | **No** | **No** | **None** | Environment diagnostics, state check, and local setup readiness verification | `bootstrap checks --read-only`, `bootstrap doctor`, `bootstrap state --show` |
-| **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run`, `bootstrap state --init --dry-run` |
+| **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run`, `bootstrap state --init --dry-run`, `bootstrap simulate --local` |
 | **Future Live** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Production deployments and live cloud management (Design Only) | Planned `bootstrap apply` (without `--dry-run`), live production deploy (see [LIVE_APPLY_DESIGN.md](LIVE_APPLY_DESIGN.md)) |
 
 ---
@@ -149,6 +149,20 @@ uv run python -m src.sandbox bootstrap apply --preflight --read-only
 uv run python -m src.sandbox bootstrap smoke --dry-run
 ```
 *Expected Result:* All commands complete successfully, producing a detailed plan/checklist of target steps and validations.
+
+### Step 7: Local-only Apply/Rollback Simulation
+Verify the end-to-end simulation of the `plan → preflight → apply → verify → rollback` cycle on synthetic resources:
+```bash
+# Run successful (happy path) simulation of the deployment and cleanup cycle
+uv run python -m src.sandbox bootstrap simulate --local
+
+# Run JSON-formatted output of the successful simulation
+uv run python -m src.sandbox bootstrap simulate --local --json
+
+# Run failure simulation where verify fails, triggering automatic rollback of applied steps
+uv run python -m src.sandbox bootstrap simulate --local --fail-after-apply --json
+```
+*Expected Result:* The CLI performs the plan, preflight, apply, verify, and rollback phases sequentially. In the failure path, verify fails, and the system automatically rolls back all applied synthetic steps, returning the system to a clean state.
 
 ---
 

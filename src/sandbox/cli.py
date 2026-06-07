@@ -245,9 +245,14 @@ async def async_main() -> None:
         state_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
         state_parser.add_argument("--overwrite", action="store_true", help="Разрешить перезапись файла при инициализации")
 
+        simulate_parser = subparsers.add_parser("simulate", help="Запустить локальную симуляцию цикла plan->preflight->apply->verify->rollback")
+        simulate_parser.add_argument("--local", action="store_true", help="Явное подтверждение запуска локальной синтетической симуляции")
+        simulate_parser.add_argument("--fail-after-apply", action="store_true", help="Симулировать ошибку после фазы apply для проверки отката")
+        simulate_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state, run_bootstrap_simulate
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -295,6 +300,14 @@ async def async_main() -> None:
                 path=args.path,
                 json_mode=args.json,
                 overwrite=args.overwrite
+            ))
+        elif args.bootstrap_cmd == "simulate":
+            if not args.local:
+                bootstrap_parser.error("Команда simulate требует обязательного указания флага --local.")
+            sys.exit(run_bootstrap_simulate(
+                local=args.local,
+                fail_after_apply=args.fail_after_apply,
+                json_mode=args.json
             ))
         return
 
