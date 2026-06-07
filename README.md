@@ -31,9 +31,10 @@ To ensure compliance with strict privacy and safety guidelines, the public slice
 
 ## Reviewer Paths
 
-The codebase supports two distinct verification paths for technical reviewers:
-1. **Default Offline Sandbox (No Docker, No DB)**: Runs completely offline, using a fake/offline LLM provider and in-memory persistence.
-2. **Optional Local Supabase (Docker + Supabase CLI)**: Allows verifying relational schemas, migrations, RLS policies, seeds, and SQL smoke scripts locally.
+The codebase supports three verification paths for technical reviewers:
+1. **Docker Reviewer Path (Primary & Recommended)**: A fully sandboxed, safe environment that runs all offline checks, tests, scenario runs, and state simulation inside a Docker container. Requires no secrets, local Python setup, or host modifications.
+2. **Native Ubuntu 26.04 Path (Secondary & Debug)**: Runs checks, tests, and scenarios natively on the host machine. Requires Python 3.13 and the `uv` package manager.
+3. **Optional Local Supabase (Database Schema Validation)**: Allows verifying relational schemas, migrations, RLS policies, seeds, and SQL smoke scripts locally using Docker and Supabase CLI.
 
 ## Milestone Status & Roadmap
 
@@ -43,30 +44,69 @@ The development of the system's infrastructure configuration and setup wizard is
 
 ## Quickstart
 
-### Fresh Machine Prerequisites
+### Path A: Preferred Docker Reviewer Path (Primary)
+Provides a fully containerized, reproducible, and safe environment for verifying the system. It runs completely offline with zero secrets and requires no local Python installation.
 
-If you are running on a clean/fresh machine (e.g., a clean `ubuntu:26.04` container or VM), you need to install basic system dependencies and the `uv` package manager before setting up the repository.
+> [!NOTE]
+> **Docker vs. Browser Security Boundary:**
+> - **Inside Docker Container**: Safe offline CLI validation, test suite execution, scenario runs, plan dry-runs, and simulate/cleanup previews. No live mutations, cloud calls, or secrets required.
+> - **Outside Docker (Host/Browser Profile)**: Creating accounts or signing up for Supabase, Render, Google AI Studio (Gemini), or Telegram (BotFather) if you plan future live cloud deployment integration.
 
-1. **Install system packages (Ubuntu 26.04 / Debian)**
+1. **Build the Reviewer Image**
    ```bash
-   sudo apt-get update && sudo apt-get install -y ca-certificates git curl
+   docker build -t agentic-domain-runtime-reviewer .
    ```
 
-2. **Install `uv` package manager**
+2. **Run the Offline Test Suite**
    ```bash
+   docker run --rm agentic-domain-runtime-reviewer uv run pytest tests/sandbox -q
+   ```
+
+3. **Run Multi-Domain Scenarios**
+   ```bash
+   # Run full mock scenarios for each domain (Kitchen, Books, Health)
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox --scenario kitchen --full
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox --scenario books --full
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox --scenario health --full
+   ```
+
+4. **Verify Bootstrap Simulation & Checks**
+   ```bash
+   # Verify local environment readiness (doctor checks CLI presence in the container)
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap doctor
+
+   # Dry-run apply stages (generates plan/checklist without mutations)
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap apply --preflight --read-only
+
+   # Run end-to-end plan -> preflight -> apply -> verify -> rollback cycle
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap simulate --local
+
+   # Preview cleanup/rollback steps
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap cleanup --preview --local --json
+   ```
+
+5. **Interact with the Container CLI (Optional)**
+   You can start an interactive bash session inside the container:
+   ```bash
+   docker run --rm -it agentic-domain-runtime-reviewer
+   # Inside the container, you can run any command directly:
+   # uv run pytest tests/sandbox -q
+   # uv run python -m src.sandbox "Добавь рецепт борща"
+   ```
+
+### Path B: Native Ubuntu 26.04 Path (Secondary / Debug)
+Runs completely offline with zero infrastructure dependencies. It uses a local fake LLM provider and in-memory persistence mocks to demonstrate the domain routing, extraction, validation, and storage workflows without needing external APIs or a live database.
+
+1. **Fresh Machine Prerequisites**
+   If you are running on a clean/fresh machine (e.g., a clean `ubuntu:26.04` container or VM), you need to install basic system dependencies and the `uv` package manager before setting up the repository.
+   ```bash
+   sudo apt-get update && sudo apt-get install -y ca-certificates git curl
    curl -LsSf https://astral.sh/uv/install.sh | sh
    # Restart your shell or source the env:
    source $HOME/.local/bin/env
    ```
 
-> [!NOTE]
-> For the **Default Offline Sandbox** (Path A), **no other tools** are required (neither Docker, Supabase CLI, nor Render CLI are needed). The sandbox is fully self-contained.
-> Docker and Supabase/Render CLI tools are **optional** and only necessary for the optional local DB execution (Path B) or live cloud deployment planning.
-
-### Path A: Default Offline Sandbox (Default)
-Runs completely offline with zero infrastructure dependencies. It uses a local fake LLM provider and in-memory persistence mocks to demonstrate the domain routing, extraction, validation, and storage workflows without needing external APIs or a live database.
-
-1. **Synchronize dependencies & run tests**
+2. **Synchronize dependencies & run tests**
    ```bash
    # Sync dependencies
    uv sync
@@ -75,7 +115,7 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    uv run pytest tests/sandbox -q
    ```
 
-2. **Execute the CLI sandbox**
+3. **Execute the CLI sandbox**
    Directly test the multi-domain routing and data-extraction parsing of free-text inputs:
    ```bash
    # Kitchen: recipe processing
@@ -87,9 +127,8 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    # Health: health-log event capture
    uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
    ```
-   *Expected behavior:* The CLI will parse, validate, and simulate saving to the in-memory database, outputting a complete routing trace and simulated agent response.
 
-3. **Run complete validation scenarios**
+4. **Run complete validation scenarios**
    ```bash
    # Run full mock scenarios for each domain
    uv run python -m src.sandbox --scenario kitchen --full
@@ -97,7 +136,7 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    uv run python -m src.sandbox --scenario health --full
    ```
 
-4. **Smoke test the Runtime HTTP Server**
+5. **Smoke test the Runtime HTTP Server**
    Start the local HTTP sandbox runtime server (emulates webhook integration):
    ```bash
    uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
@@ -106,23 +145,19 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    ```bash
    # 1. Health check (Verify registered agents & server status)
    curl -sS -i http://127.0.0.1:8000/health
-   # Expected response: HTTP 200 OK with registered agent names
 
    # 2. Valid Webhook Payload (Simulate Telegram message routing)
    curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
      -H 'Content-Type: application/json' \
      -d '{"message":{"text":"Добавь рецепт борща"}}'
-   # Expected response: HTTP 200 OK with routing details, extraction status, and the bot response
 
    # 3. Invalid Webhook Payload (Verify error handling and controlled 400 response)
    curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
      -H 'Content-Type: application/json' \
      -d '{"message":{}}'
-   # Expected response: HTTP 400 Bad Request with "Missing or invalid 'message' field" explanation
    ```
 
-5. **Run bootstrap verification commands**
-   Verify local environment dependencies, inspect resource topology plans, or simulate configuration stages using dry-run deployment validation:
+6. **Run bootstrap verification commands**
    ```bash
    # Verify dependencies
    uv run python -m src.sandbox bootstrap doctor
@@ -140,7 +175,7 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    uv run python -m src.sandbox bootstrap smoke --dry-run
    ```
 
-### Path B: Optional Local Supabase
+### Path C: Optional Local Supabase
 Allows verifying database schemas, RLS policies, and SQL smoke scripts locally.
 
 ```bash

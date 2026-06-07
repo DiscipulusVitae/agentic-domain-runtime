@@ -39,10 +39,28 @@ The following capabilities are **explicitly out of scope** for active code execu
 
 ## 4. The Unified Reviewer Safe Path (Step-by-Step)
 
-Follow these steps in sequence to verify the entire system safely.
+Reviewers can verify the entire system safely using either the **Preferred Docker-first Path (Path A)** or the **Native Ubuntu Path (Path B)**.
 
-### Step 0: Fresh Machine Prerequisites
-If you are onboarding this codebase on a clean machine/container (e.g., fresh `ubuntu:26.04`), install the baseline system dependencies and `uv` package manager:
+> [!NOTE]
+> **Docker vs. Browser Security Boundary:**
+> * **Docker Container (Safe Validation Zone)**: All CLI checks, pytest suites, domain scenario runs, bootstrap plans, preflight dry-runs, synthetic state initialization, and deployment rollback simulations run completely offline and locally. No secrets, tokens, or live cloud mutations are ever required or executed.
+> * **Host Browser (Manual Setup Zone)**: Outside the container, human-driven signup, token handoffs, and OAuth authorizations (Supabase, Render, Google AI Studio, Telegram BotFather) remain separate and are only needed for future live production deployments.
+
+---
+
+### Step 1: Environment Setup
+
+Choose your preferred environment:
+
+#### Path A: Docker Reviewer Path (Primary & Recommended)
+Requires only Docker installed on the host. Eliminates the need for local Python, `uv`, or host OS packages.
+```bash
+# Build the self-contained reviewer image
+docker build -t agentic-domain-runtime-reviewer .
+```
+
+#### Path B: Native Ubuntu 26.04 Path (Secondary & Fallback)
+Requires Python >= 3.13 and the `uv` package manager installed on the host.
 ```bash
 # 1. Install system utilities
 sudo apt-get update && sudo apt-get install -y ca-certificates git curl
@@ -50,46 +68,78 @@ sudo apt-get update && sudo apt-get install -y ca-certificates git curl
 # 2. Install uv package manager
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
-```
 
-> [!NOTE]
-> Only Python (>= 3.13) and `uv` are critical for the **Default Offline Sandbox** flow.
-> Heavy auxiliary tools like Docker, Supabase CLI, and Render CLI are optional and not required to execute the baseline offline scenario/unit tests. Their absence will be reported as warnings by the system diagnostic tool but will not block the review path.
-
-### Step 1: Offline Sandbox Setup & Unit Tests
-Initialize the environment using `uv` and run the offline unit test suite:
-```bash
-# 1. Synchronize Python dependencies
+# 3. Synchronize Python dependencies
 uv sync
 
-# 2. Copy the sandbox-first environment profile template
+# 4. Copy the environment profile template
 cp .env.example .env
-
-# 3. Run the offline test suite
-uv run pytest tests/sandbox -q
 ```
-*Expected Result:* The sandbox test suite passes successfully.
 
-### Step 2: Multi-Domain CLI Scenario Runs
-Exercise the runtime domain routing, LLM-assisted data extraction, validation, and storage mocks using the sandbox CLI:
-```bash
-# Run full mock scenarios for each domain (Kitchen, Books, Health)
-uv run python -m src.sandbox --scenario kitchen --full
-uv run python -m src.sandbox --scenario books --full
-uv run python -m src.sandbox --scenario health --full
+---
 
-# Test single domain routing inputs directly
-uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
-```
-*Expected Result:* The CLI will parse, validate, and simulate saving to the in-memory database, returning a complete routing trace and simulated agent response.
+### Step 2: Offline Sandbox Setup & Unit Tests
 
-### Step 3: Local Runtime HTTP Server Smoke Verification
-Start the local HTTP sandbox runtime server (which emulates the webhook listener interface) and execute verification requests:
-```bash
-# 1. Start the server (run this in Terminal 1)
-uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
-```
-In another terminal (Terminal 2), run the following tests:
+Verify the offline logic by running the complete unit test suite.
+
+*   **Docker Path A**:
+    ```bash
+    docker run --rm agentic-domain-runtime-reviewer uv run pytest tests/sandbox -q
+    ```
+*   **Native Path B**:
+    ```bash
+    uv run pytest tests/sandbox -q
+    ```
+*   *Expected Result*: The entire test suite passes successfully.
+
+---
+
+### Step 3: Multi-Domain CLI Scenario Runs
+
+Exercise the runtime domain routing, LLM-assisted data extraction, validation, and storage mocks.
+
+*   **Docker Path A**:
+    ```bash
+    # Run full mock scenarios for each domain (Kitchen, Books, Health)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox --scenario kitchen --full
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox --scenario books --full
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox --scenario health --full
+
+    # Test single domain routing inputs directly
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
+    ```
+*   **Native Path B**:
+    ```bash
+    # Run full mock scenarios for each domain
+    uv run python -m src.sandbox --scenario kitchen --full
+    uv run python -m src.sandbox --scenario books --full
+    uv run python -m src.sandbox --scenario health --full
+
+    # Test single domain routing inputs directly
+    uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
+    ```
+*   *Expected Result*: The CLI parses, validates, and simulates saving to the in-memory database, returning a complete routing trace and simulated agent response.
+
+---
+
+### Step 4: Local Runtime HTTP Server Smoke Verification
+
+Start the local HTTP sandbox runtime server (emulating webhook listener interfaces) and execute verification requests.
+
+*   **Docker Path A**:
+    ```bash
+    # 1. Start the server (expose port 8000)
+    docker run --rm -p 8000:8000 agentic-domain-runtime-reviewer uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port 8000
+    ```
+    *In another terminal (Terminal 2), run the verification requests below.*
+*   **Native Path B**:
+    ```bash
+    # 1. Start the server
+    uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
+    ```
+    *In another terminal (Terminal 2), run the verification requests below.*
+
+**Verification Requests (Terminal 2)**:
 ```bash
 # 2. Health check (Verify registered agents & server status)
 curl -sS -i http://127.0.0.1:8000/health
@@ -107,99 +157,143 @@ curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
   -H 'Content-Type: application/json' \
   -d '{"message":{}}'
 ```
-*Expected Result:*
-* `/health` returns `HTTP 200 OK` with registered agent names.
-* `/webhook/telegram` (valid) returns `HTTP 200 OK` containing routing details and bot response.
-* `/webhook/telegram` (invalid) returns `HTTP 400 Bad Request` with an explanation.
-
+*Expected Result*: `/health` and valid webhook return `HTTP 200 OK`, while invalid webhook returns `HTTP 400 Bad Request`.
 *(Once completed, stop the server in Terminal 1 using `Ctrl+C`)*
 
-### Step 4: Bootstrap Preflight Checks & Local State Management
-Run read-only preflight checks to diagnose local workspace readiness, dependency CLI presence, and verify the local non-secret state file contract.
+---
 
-> [!NOTE]
-> The `bootstrap doctor` command will execute successfully (exit code 0) even if optional tools like Docker, Supabase, or Render CLIs are missing, displaying warnings and installation commands instead of blocking the review process.
+### Step 5: Bootstrap Preflight Checks & Local State Management
 
-```bash
-# Verify local tool dependency readiness (Python, Docker, Supabase, Render CLIs)
-uv run python -m src.sandbox bootstrap doctor
+Verify environment tools and read-only preflight checks.
 
-# Run read-only preflight checks (verifies presence of variables safely without mutating anything)
-uv run python -m src.sandbox bootstrap checks --read-only
+*   **Docker Path A**:
+    ```bash
+    # Verify local tool dependency readiness (within container)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap doctor
 
-# Dry-run initializing the local non-secret state file
-uv run python -m src.sandbox bootstrap state --init --dry-run
+    # Run read-only preflight checks (verifies presence of variables safely)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap checks --read-only
 
-# Initialize the local state file (.bootstrap-state.json is git-ignored)
-uv run python -m src.sandbox bootstrap state --init --path .bootstrap-state.json
+    # Dry-run initializing the local non-secret state file
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap state --init --dry-run
+    ```
+*   **Native Path B**:
+    ```bash
+    # Verify local tool dependency readiness
+    uv run python -m src.sandbox bootstrap doctor
 
-# Read and print a summary of the initialized state file
-uv run python -m src.sandbox bootstrap state --show --path .bootstrap-state.json
-```
-*Expected Result:* Diagnostics and tool readiness are displayed, and the `.bootstrap-state.json` file is successfully initialized locally and verified without storing any secrets.
+    # Run read-only preflight checks
+    uv run python -m src.sandbox bootstrap checks --read-only
 
-### Step 5: Local Supabase Dry-Run Plan
-Verify the local Supabase configuration, relational schemas, migrations, seeds, and SQL smoke scripts:
-```bash
-# Inspect the target resource topology plan
-uv run python -m src.sandbox bootstrap plan
+    # Dry-run initializing the local non-secret state file
+    uv run python -m src.sandbox bootstrap state --init --dry-run
+    ```
+*   *Expected Result*: Tool readiness statuses are displayed, and dry-runs succeed without modifying the host workspace.
 
-# Verify local Supabase asset layout (validates migrations, config, and seed files locally)
-uv run python -m src.sandbox bootstrap supabase --local --dry-run
+---
 
-# Simulate the interactive install wizard flow (simulates the 10-step bootstrap checklist)
-uv run python -m src.sandbox bootstrap install --dry-run
-```
-*Expected Result:* The simulator outputs a list of validated migrations, config layouts, and the planned wizard execution checklist.
+### Step 6: Local Supabase Dry-Run Plan
 
-### Step 6: Telegram Webhook Readiness Simulation
-Simulate the final webhook deployment configuration, verification checklists, and smoke checks without calling live APIs:
-```bash
-# Dry-run Telegram Bot API token handoff and webhook target mapping
-uv run python -m src.sandbox bootstrap telegram --webhook --dry-run
+Inspect target resource topologies and verify local asset layouts.
 
-# Dry-run end-to-end apply stages (prepares the final deployment checklist)
-uv run python -m src.sandbox bootstrap apply --dry-run
+*   **Docker Path A**:
+    ```bash
+    # Inspect the target resource topology plan
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap plan
 
-# Safe preflight check before future live apply (verifies environment readiness, read-only)
-uv run python -m src.sandbox bootstrap apply --preflight --read-only
+    # Verify local Supabase asset layout (validates migrations, config, and seed files)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap supabase --local --dry-run
 
-# Dry-run post-deployment smoke validation simulation
-uv run python -m src.sandbox bootstrap smoke --dry-run
-```
-*Expected Result:* All commands complete successfully, producing a detailed plan/checklist of target steps and validations.
+    # Simulate the interactive install wizard flow (dry-run checklist)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap install --dry-run
+    ```
+*   **Native Path B**:
+    ```bash
+    # Inspect the target resource topology plan
+    uv run python -m src.sandbox bootstrap plan
 
-### Step 7: Local-only Apply/Rollback Simulation
-Verify the end-to-end simulation of the `plan → preflight → apply → verify → rollback` cycle on synthetic resources:
-```bash
-# Run successful (happy path) simulation of the deployment and cleanup cycle
-uv run python -m src.sandbox bootstrap simulate --local
+    # Verify local Supabase asset layout
+    uv run python -m src.sandbox bootstrap supabase --local --dry-run
 
-# Run JSON-formatted output of the successful simulation
-uv run python -m src.sandbox bootstrap simulate --local --json
+    # Simulate the interactive install wizard flow
+    uv run python -m src.sandbox bootstrap install --dry-run
+    ```
+*   *Expected Result*: The command outputs target deployment checklists and validation summaries without creating cloud databases.
 
-# Run failure simulation where verify fails, triggering automatic rollback of applied steps
-uv run python -m src.sandbox bootstrap simulate --local --fail-after-apply --json
-```
-*Expected Result:* The CLI performs the plan, preflight, apply, verify, and rollback phases sequentially. In the failure path, verify fails, and the system automatically rolls back all applied synthetic steps, returning the system to a clean state.
+---
 
-### Step 8: Rollback & Cleanup Preview (Dry-Run)
-Verify the safe, local-only preview of the rollback/cleanup plan before future live apply operations:
-```bash
-# 1. Preview rollback/cleanup without a state file (builds preview from deterministic plan)
-uv run python -m src.sandbox bootstrap cleanup --preview --local
+### Step 7: Telegram Webhook Readiness Simulation
 
-# 2. Preview in JSON format
-uv run python -m src.sandbox bootstrap cleanup --preview --local --json
+Dry-run target configuration steps and readiness check gates.
 
-# 3. Preview using an existing state file
-tmp_state="$(mktemp)"
-uv run python -m src.sandbox bootstrap state --init --path "$tmp_state"
-uv run python -m src.sandbox bootstrap cleanup --preview --local --state-path "$tmp_state" --json
-rm -f "$tmp_state"
-```
-*Expected Result:*
-The command outputs a structured preview of the rollback/cleanup plan in the reverse dependency order (Telegram -> Render -> Supabase -> Local State), showing the status of each synthetic resource and whether each cleanup action is `skipped/not-created`, `manual/future-live`, or `automatic/local`. Plain execution without the `--preview --local` flags is blocked.
+*   **Docker Path A**:
+    ```bash
+    # Dry-run Telegram webhook mapping
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap telegram --webhook --dry-run
+
+    # Dry-run apply stages (produces final deployment checklist)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap apply --dry-run
+
+    # Safe preflight check (verifies env readiness, read-only)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap apply --preflight --read-only
+    ```
+*   **Native Path B**:
+    ```bash
+    # Dry-run Telegram webhook mapping
+    uv run python -m src.sandbox bootstrap telegram --webhook --dry-run
+
+    # Dry-run apply stages
+    uv run python -m src.sandbox bootstrap apply --dry-run
+
+    # Safe preflight check
+    uv run python -m src.sandbox bootstrap apply --preflight --read-only
+    ```
+*   *Expected Result*: Plans are successfully built, and the preflight gate reports status.
+
+---
+
+### Step 8: Local-only Apply/Rollback Simulation
+
+Verify the end-to-end simulation of the `plan → preflight → apply → verify → rollback` cycle on synthetic resources.
+
+*   **Docker Path A**:
+    ```bash
+    # Run successful (happy path) simulation of the deployment and cleanup cycle
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap simulate --local
+
+    # Run JSON-formatted output of the successful simulation
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap simulate --local --json
+
+    # Run failure simulation where verify fails, triggering automatic rollback of applied steps
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap simulate --local --fail-after-apply --json
+    ```
+*   **Native Path B**:
+    ```bash
+    # Run successful simulation
+    uv run python -m src.sandbox bootstrap simulate --local
+
+    # Run failure simulation
+    uv run python -m src.sandbox bootstrap simulate --local --fail-after-apply --json
+    ```
+*   *Expected Result*: The simulator executes all phases sequentially. In the failure path, it automatically rolls back all applied synthetic resources.
+
+---
+
+### Step 9: Rollback & Cleanup Preview (Dry-Run)
+
+Verify the local preview of the rollback/cleanup plan before future live apply operations.
+
+*   **Docker Path A**:
+    ```bash
+    # Preview rollback/cleanup without a state file (builds preview from deterministic plan)
+    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap cleanup --preview --local
+    ```
+*   **Native Path B**:
+    ```bash
+    # Preview rollback/cleanup
+    uv run python -m src.sandbox bootstrap cleanup --preview --local
+    ```
+*   *Expected Result*: Structured cleanup plan preview is displayed in reverse dependency order, showing that no resources are left in the cloud.
 
 ---
 
