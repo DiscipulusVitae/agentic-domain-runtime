@@ -35,6 +35,8 @@ The following capabilities are **explicitly out of scope** for active code execu
 * **Telegram Bot API Webhook Mutation**: Outbound `setWebhook` API operations or modifying live bot handlers.
 * **Production Deploy**: Merging, building, and deploying the application stack into a live production environment.
 
+The first proposed live boundary is documented separately as a human/operator approval package: **[First Live GO Package](FIRST_LIVE_GO_PACKAGE.md)**. It is prepared for review only; it does not authorize or execute live mutation by itself.
+
 ---
 
 ## 4. The Unified Reviewer Safe Path (Step-by-Step)
