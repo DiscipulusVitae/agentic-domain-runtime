@@ -237,9 +237,17 @@ async def async_main() -> None:
         telegram_parser.add_argument("--dry-run", action="store_true", help="Показать план без реальных изменений")
         telegram_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
+        state_parser = subparsers.add_parser("state", help="Управление локальным файлом состояния")
+        state_parser.add_argument("--init", action="store_true", help="Инициализировать файл состояния")
+        state_parser.add_argument("--show", action="store_true", help="Показать файл состояния")
+        state_parser.add_argument("--dry-run", action="store_true", help="Симулировать операцию без записи файла")
+        state_parser.add_argument("--path", default=".bootstrap-state.json", help="Путь к файлу состояния")
+        state_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+        state_parser.add_argument("--overwrite", action="store_true", help="Разрешить перезапись файла при инициализации")
+
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_supabase_bootstrap, run_telegram_bootstrap
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -275,6 +283,19 @@ async def async_main() -> None:
             if not args.webhook or not args.dry_run:
                 bootstrap_parser.error("Команда telegram требует указания флагов --webhook и --dry-run в текущей версии.")
             sys.exit(run_telegram_bootstrap(webhook=args.webhook, dry_run=args.dry_run, json_mode=args.json))
+        elif args.bootstrap_cmd == "state":
+            if not args.init and not args.show:
+                bootstrap_parser.error("Команда state требует указания флага --init или --show.")
+            if args.init and args.show:
+                bootstrap_parser.error("Флаги --init и --show несовместимы.")
+            sys.exit(run_bootstrap_state(
+                init=args.init,
+                show=args.show,
+                dry_run=args.dry_run,
+                path=args.path,
+                json_mode=args.json,
+                overwrite=args.overwrite
+            ))
         return
 
 

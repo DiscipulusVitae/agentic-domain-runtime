@@ -11,8 +11,8 @@ The codebase operates in distinct modes to allow safe review at different levels
 | Mode | Network Required | Secrets Required | State Mutations | Purpose | Key Commands |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Offline** | **No** | **No** | **None** (In-memory mock only) | Offline logic verification, tests, and CLI mock runs | `pytest`, `--scenario <domain> --full`, `runtime serve` |
-| **Read-Only** | **No** | **No** | **None** | Environment diagnostics and local setup readiness verification | `bootstrap checks --read-only`, `bootstrap doctor` |
-| **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run` |
+| **Read-Only** | **No** | **No** | **None** | Environment diagnostics, state check, and local setup readiness verification | `bootstrap checks --read-only`, `bootstrap doctor`, `bootstrap state --show` |
+| **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run`, `bootstrap state --init --dry-run` |
 | **Future Live** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Production deployments and live cloud management (Design Only) | Planned `bootstrap apply` (without `--dry-run`), live production deploy (see [LIVE_APPLY_DESIGN.md](LIVE_APPLY_DESIGN.md)) |
 
 ---
@@ -99,16 +99,25 @@ curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
 
 *(Once completed, stop the server in Terminal 1 using `Ctrl+C`)*
 
-### Step 4: Bootstrap Preflight Checks (Read-Only)
-Run read-only preflight checks to diagnose local workspace readiness, dependency CLI presence, and potential target resource plans:
+### Step 4: Bootstrap Preflight Checks & Local State Management
+Run read-only preflight checks to diagnose local workspace readiness, dependency CLI presence, and verify the local non-secret state file contract:
 ```bash
 # Verify local tool dependency readiness (Python, Docker, Supabase, Render CLIs)
 uv run python -m src.sandbox bootstrap doctor
 
 # Run read-only preflight checks (verifies presence of variables safely without mutating anything)
 uv run python -m src.sandbox bootstrap checks --read-only
+
+# Dry-run initializing the local non-secret state file
+uv run python -m src.sandbox bootstrap state --init --dry-run
+
+# Initialize the local state file (.bootstrap-state.json is git-ignored)
+uv run python -m src.sandbox bootstrap state --init --path .bootstrap-state.json
+
+# Read and print a summary of the initialized state file
+uv run python -m src.sandbox bootstrap state --show --path .bootstrap-state.json
 ```
-*Expected Result:* Diagnostics are output, highlighting which CLI tools are installed and which environment variables are missing/present (without exposing secret values).
+*Expected Result:* Diagnostics and tool readiness are displayed, and the `.bootstrap-state.json` file is successfully initialized locally and verified without storing any secrets.
 
 ### Step 5: Local Supabase Dry-Run Plan
 Verify the local Supabase configuration, relational schemas, migrations, seeds, and SQL smoke scripts:

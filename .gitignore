@@ -38,3 +38,6 @@ dist/
 # Supabase local generated state
 supabase/.branches/
 supabase/.temp/
+
+# Local Bootstrap State
+.bootstrap-state.json

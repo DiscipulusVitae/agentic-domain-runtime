@@ -115,6 +115,18 @@ Managing live secrets requires strict hygiene to prevent credentials from leakin
    - For example, if `TELEGRAM_BOT_TOKEN` is detected in a planned Render env variable group output, it must be replaced with `[REDACTED]` or `*` masks.
    - Standard output traces must only output resource IDs, never credential values.
 
+### 4.4 Local State File Contract
+
+To track execution progress safely and support resumption/cleanup after partial apply runs, a local state file contract is established:
+1. **File Location**: By default, the state file is written to `.bootstrap-state.json` at the workspace root.
+2. **Git Protection**: The file `.bootstrap-state.json` must be explicitly listed in `.gitignore` to prevent committing local environment metadata to git.
+3. **Non-Secret Content**: The file only stores metadata, current initialization/execution status, and the planned resource topologies from `generate_bootstrap_plan`. It must never store tokens, database passwords, or secret environment variables.
+4. **CLI Commands**:
+   - `uv run python -m src.sandbox bootstrap state --init [--path <path>] [--overwrite] [--dry-run] [--json]`
+     Initializes the non-secret state file. Fails if the file already exists unless `--overwrite` is specified.
+   - `uv run python -m src.sandbox bootstrap state --show [--path <path>] [--json]`
+     Reads and displays the current state file summary. Fails if the file does not exist.
+
 ---
 
 ## 5. State Transitions
