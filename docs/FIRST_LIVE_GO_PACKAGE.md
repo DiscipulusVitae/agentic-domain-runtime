@@ -12,7 +12,7 @@ No live mutation is performed by this document. A separate explicit GO is requir
 
 The live testing is divided into two distinct phases to ensure isolation and minimize risks:
 
-- **Phase 1 (First Live Target): Render-only `/health` HTTPS smoke.**
+- **Phase 1 (First Live Target): Render-only `/health` HTTPS smoke via CLI.**
 - **Phase 2 (Second Live Target): Telegram webhook smoke against the Render endpoint.**
 
 This package focuses on **Phase 1** as the initial mutation boundary, while defining Phase 2 as a subsequent step.
@@ -27,17 +27,14 @@ This package focuses on **Phase 1** as the initial mutation boundary, while defi
 
 ---
 
-## 2. Phase 1: Render Minimal HTTPS Runtime Smoke
+## 2. Phase 1: Render Minimal HTTPS Runtime Smoke (CLI-first)
 
 This phase validates that `agentic-domain-runtime` can be successfully built and deployed as a Docker container to Render, serving public HTTPS requests on the `/health` endpoint.
 
 ### 2.1. Render Assumptions & Constraints
 - **Billing:** Render Free Tier must be used. No credit card should be requested or linked for this smoke. If a billing prompt or card requirement appears, abort immediately.
 - **Service Type:** Web Service.
-- **Deployment Source:**
-  - Repository: Public Git repository URL (`https://github.com/DiscipulusVitae/agentic-domain-runtime.git`). Do not use the GitHub provider connection to avoid auto-deploy/PR preview setups and permissions request.
-  - Branch: `main` (or a designated release branch).
-  - Runtime: Docker (detected via `Dockerfile` in the root).
+- **Deployment Source:** Public Git repository URL (`https://github.com/DiscipulusVitae/agentic-domain-runtime.git`). Do not use the GitHub provider connection to avoid auto-deploy/PR preview setups.
 - **Docker Command:** Specify the custom start command because the default Dockerfile CMD launches an interactive shell (`/bin/bash`):
   ```bash
   /bin/sh -c 'uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port ${PORT:-10000}'
@@ -65,22 +62,43 @@ GO Phase 1: Render minimal HTTPS runtime smoke
 ```
 
 ### 2.4. Deployment & Verification Steps (Live Mutation)
-1. **Create Render Service:**
-   - Log into the Render Dashboard.
-   - Create a new **Web Service**.
-   - Select **Public Git repository** (do not connect your GitHub account) and enter the URL: `https://github.com/DiscipulusVitae/agentic-domain-runtime.git`.
-   - Choose the **Docker** runtime.
-   - Set the custom **Docker Command**:
+1. **Authenticate in Render CLI:**
+   Run the interactive login command (opens browser for authentication):
+   ```bash
+   render login
+   ```
+   Verify authentication:
+   ```bash
+   render whoami
+   ```
+2. **Create Render Service via CLI:**
+   Run the creation command targeting the public Git URL, specifying the custom Docker start command and setting auto-deploy to false:
+   ```bash
+   render services create \
+     --name adr-runtime-smoke \
+     --type web_service \
+     --repo https://github.com/DiscipulusVitae/agentic-domain-runtime.git \
+     --runtime docker \
+     --branch main \
+     --start-command "/bin/sh -c 'uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port \${PORT:-10000}'" \
+     --plan free \
+     --auto-deploy=false \
+     --health-check-path /health \
+     --confirm \
+     --output json
+   ```
+   *Note: Capture the service ID (`srv-...`) from the JSON response for logging/monitoring.*
+3. **Monitor Deploy Status & Logs:**
+   - List services to see deployment status:
      ```bash
-     /bin/sh -c 'uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port ${PORT:-10000}'
+     render services --output json
      ```
-   - Select the **Free** instance type.
-   - Click **Deploy Web Service**.
-2. **Monitor Build & Deploy Logs:**
-   - Verify that the Docker build succeeds on Render.
-   - Verify that the service starts and logs no startup crashes.
-3. **Verify Public HTTPS endpoint:**
-   - Locate the public URL provided by Render (e.g., `https://<service-name>.onrender.com`).
+   - Stream deployment/application logs to verify successful container start:
+     ```bash
+     render logs <service-id-or-name>
+     ```
+4. **Verify Public HTTPS endpoint:**
+   - Retrieve the public URL from the service details (or locate it in the Render Dashboard).
    - Query the `/health` endpoint:
      ```bash
      curl -sS -i https://<service-name>.onrender.com/health
@@ -88,11 +106,12 @@ GO Phase 1: Render minimal HTTPS runtime smoke
    - Expected: `HTTP 200` and JSON response.
 
 ### 2.5. Phase 1 Cleanup Plan
-The Render Web Service is temporary and must be cleaned up immediately after verification:
-1. In the Render Dashboard, navigate to **Settings** for the service.
-2. Scroll to the bottom and click **Delete Web Service**.
-3. Confirm deletion.
-4. Verify cleanup:
+The Render Web Service is temporary and must be cleaned up immediately after verification. Since the Render CLI does not currently support service deletion, this step is performed via the dashboard:
+1. Log into the Render Dashboard.
+2. Navigate to the **adr-runtime-smoke** service.
+3. Go to **Settings**, scroll to the bottom, and click **Delete Web Service**.
+4. Confirm deletion.
+5. Verify cleanup:
    - Ensure the service is shown as deleted/inactive in the Render Dashboard.
    - Query the URL:
      ```bash
@@ -117,7 +136,7 @@ GO Phase 2: Telegram webhook smoke against Render URL
 ```
 
 ### 3.3. Phase 2 Execution Steps
-1. Re-deploy the Render Web Service (similar to Phase 1).
+1. Re-deploy the Render Web Service via Render CLI (similar to Phase 1).
 2. Export the disposable bot token locally:
    ```bash
    read -rsp "Telegram bot token: " TELEGRAM_BOT_TOKEN
@@ -140,7 +159,10 @@ GO Phase 2: Telegram webhook smoke against Render URL
    ```
    Expected: Webhook URL points to the Render service.
 6. Send one synthetic test message to the disposable bot on Telegram (e.g., "Add lemon pasta recipe").
-7. Verify Render service logs to confirm it received and processed the webhook update.
+7. View application logs via Render CLI to confirm webhook update receipt:
+   ```bash
+   render logs <service-id-or-name>
+   ```
 
 ### 3.4. Phase 2 Cleanup Plan
 1. Delete the webhook:
@@ -160,12 +182,12 @@ GO Phase 2: Telegram webhook smoke against Render URL
 ## 4. Abort & Rollback Conditions
 
 ### Abort Before Mutation if:
-- Any billing or credit card requirement is prompted on Render.
-- Render requests elevated permissions to your personal GitHub repositories (access should be restricted to this public repository only).
+- Any billing or credit card requirement is prompted on Render or via CLI.
+- CLI authentication requests elevated or unexpected OAuth scopes.
 - Local container preflight `/health` check fails.
 
 ### Rollback on Failure:
-- If deployment fails or `/health` returns non-200, delete the Render service immediately.
+- If deployment fails or `/health` returns non-200, delete the Render service via the dashboard immediately.
 - If Phase 2 webhook fails to set or respond, execute `deleteWebhook` immediately, verify the empty state, and delete the Render service.
 
 ---
