@@ -4,317 +4,164 @@ This document defines the first minimal live-mutation package for `agentic-domai
 
 Status: **ready for human review, not approved for execution**.
 
-No live mutation is performed by this document. A separate explicit GO is required before the first external API mutation.
+No live mutation is performed by this document. A separate explicit GO is required before any cloud or API mutation.
 
-## 1. Target
+---
 
-### Selected target
+## 1. Targets and Strategy
 
-**Telegram-only webhook boundary with a disposable reviewer bot.**
+The live testing is divided into two distinct phases to ensure isolation and minimize risks:
 
-The live mutation is limited to the Telegram Bot API:
+- **Phase 1 (First Live Target): Render-only `/health` HTTPS smoke.**
+- **Phase 2 (Second Live Target): Telegram webhook smoke against the Render endpoint.**
 
-- read current webhook state with `getWebhookInfo`;
-- set a webhook URL for a disposable bot token;
-- verify webhook state;
-- delete or restore the webhook during cleanup.
+This package focuses on **Phase 1** as the initial mutation boundary, while defining Phase 2 as a subsequent step.
 
-The target runtime endpoint is a local sandbox runtime exposed by a temporary HTTPS tunnel controlled by the reviewer/operator. The package does not create Supabase projects, Render services, databases, production deployments, or long-lived public infrastructure.
-
-### Why this target
-
-- Lowest blast radius: one disposable Telegram bot can be cleaned up manually.
-- No private data: only synthetic reviewer messages are used.
-- No billing dependency.
-- No database migration or cloud hosting coupling.
-- Rollback is simple and observable through `getWebhookInfo`.
-- It exercises the live boundary that matters for deployment UX: human credentials, external API mutation, endpoint reachability, smoke, and cleanup.
-
-### Targets explicitly not selected
+### Target Candidates Comparison
 
 | Candidate | Decision | Reason |
 |---|---|---|
-| Supabase-only project/schema apply | Deferred | Creates a long-lived cloud resource and introduces schema cleanup, access-token, project-link, and billing/organization ambiguity. |
-| Render-only service/env mutation | Deferred | Creates a deployable cloud service and env surface before the smallest external API boundary is proven. |
-| Full Render + Telegram + Supabase flow | Rejected for first live package | Too broad for the first live mutation; failure attribution and cleanup would be unnecessarily complex. |
+| **Telegram-only local tunnel** | Deferred / Rejected | Artificial tunnel setup (e.g. temporary HTTPS tunnels) does not represent the production deployment architecture. Exposes unnecessary tunnel provider setup risks. |
+| **Render-only `/health` smoke (Phase 1)** | **Selected Target** | Representative HTTPS deployment boundary using the target cloud environment (Render). Validates the Docker runtime deployability without DB, external API, or Telegram keys. |
+| **Render + Telegram in one GO** | Rejected | Too broad for the first live mutation; complicates failure isolation and recovery. |
 
-## 2. Preconditions
+---
 
-### Human-owned credential prep
+## 2. Phase 1: Render Minimal HTTPS Runtime Smoke
 
-The reviewer/operator may prepare credentials before the explicit GO, but must not place secrets in git, reports, chats, or state files.
+This phase validates that `agentic-domain-runtime` can be successfully built and deployed as a Docker container to Render, serving public HTTPS requests on the `/health` endpoint.
 
-Required:
+### 2.1. Render Assumptions & Constraints
+- **Billing:** Render Free Tier must be used. No credit card should be requested or linked for this smoke. If a billing prompt or card requirement appears, abort immediately.
+- **Service Type:** Web Service.
+- **Deployment Source:**
+  - Repository: Public GitHub repository containing `agentic-domain-runtime`.
+  - Branch: `main` (or a designated release branch).
+  - Runtime: Docker (detected via `Dockerfile` in the root).
+- **Environment Variables:** None are required for `/health` smoke (disables DB and API dependencies).
 
-- a disposable Telegram bot created through BotFather;
-- its bot token stored in a password manager;
-- Docker installed and running;
-- ability to expose local port `8000` through a temporary HTTPS tunnel.
-
-Allowed token input locations after explicit GO:
-
-- shell environment for one terminal session;
-- an interactive masked prompt if implemented later.
-
-Forbidden token locations:
-
-- `.env`;
-- `.bootstrap-state.json`;
-- task/report files;
-- docs;
-- screenshots/logs shared for review;
-- command history containing the literal token.
-
-### Local safe checks before GO
-
-From a clean checkout:
+### 2.2. Pre-mutation Local Validation
+Before requesting a live GO, the reviewer/operator must verify the local container builds and runs successfully:
 
 ```bash
 docker build -t agentic-domain-runtime-reviewer .
 docker run --rm agentic-domain-runtime-reviewer uv run pytest tests/sandbox -q
-docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap apply --preflight --read-only
-docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap cleanup --preview --local --json
+docker run --rm -p 8000:8000 agentic-domain-runtime-reviewer uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port 8000
 ```
-
-Expected:
-
-- tests pass;
-- preflight shows no cloud mutations;
-- cleanup preview is local-only;
-- no token is requested or printed.
-
-## 3. Exact Commands / Human Steps
-
-### Phase A: Start local sandbox runtime
-
-Read-only/local mutation only: starts a local process.
-
-```bash
-docker run --rm -p 8000:8000 agentic-domain-runtime-reviewer \
-  uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port 8000
-```
-
-In another terminal, verify local health:
-
+Verify local endpoint:
 ```bash
 curl -sS -i http://127.0.0.1:8000/health
 ```
+Expected: `HTTP 200` with JSON body.
 
-Expected: `HTTP 200`.
-
-### Phase B: Open a temporary HTTPS tunnel
-
-Local/network step. Use any temporary tunnel that the reviewer controls, for example an installed tunnel tool.
-
-The target public URL must be HTTPS and temporary:
-
+### 2.3. Explicit GO Boundary for Phase 1
+No live deployment or Render service creation should occur without an explicit human review and authorization message:
 ```text
-https://<temporary-host>/webhook/telegram
+GO Phase 1: Render minimal HTTPS runtime smoke
 ```
 
-Verify the tunneled health endpoint:
+### 2.4. Deployment & Verification Steps (Live Mutation)
+1. **Create Render Service:**
+   - Log into the Render Dashboard.
+   - Create a new **Web Service**.
+   - Connect the public `agentic-domain-runtime` GitHub repository.
+   - Choose the **Docker** runtime.
+   - Select the **Free** instance type.
+   - Click **Deploy Web Service**.
+2. **Monitor Build & Deploy Logs:**
+   - Verify that the Docker build succeeds on Render.
+   - Verify that the service starts and logs no startup crashes.
+3. **Verify Public HTTPS endpoint:**
+   - Locate the public URL provided by Render (e.g., `https://<service-name>.onrender.com`).
+   - Query the `/health` endpoint:
+     ```bash
+     curl -sS -i https://<service-name>.onrender.com/health
+     ```
+   - Expected: `HTTP 200` and JSON response.
 
-```bash
-curl -sS -i https://<temporary-host>/health
-```
+### 2.5. Phase 1 Cleanup Plan
+The Render Web Service is temporary and must be cleaned up immediately after verification:
+1. In the Render Dashboard, navigate to **Settings** for the service.
+2. Scroll to the bottom and click **Delete Web Service**.
+3. Confirm deletion.
+4. Verify cleanup:
+   ```bash
+   curl -sS -i https://<service-name>.onrender.com/health
+   ```
+   Expected: Connection failure or `HTTP 404 / 502` from Render indicating the service is gone.
 
-Expected: `HTTP 200`.
+---
 
-Abort if the tunnel requires broad OAuth scopes, persistent account linking, paid plan, or exposes unrelated local services.
+## 3. Phase 2: Telegram Webhook Smoke against Render URL
 
-### Phase C: Export token for the current shell only
+This phase is executed **only** after Phase 1 is completed, verified, and cleaned up, and requires a separate explicit GO.
 
-Secret handling step. Do not paste the token into a report or committed file.
+### 3.1. Telegram Assumptions & Prep
+- A disposable Telegram bot created via `@BotFather`.
+- Bot token kept strictly in the operator's shell memory/password manager.
+- No tokens stored in `.env`, state files, git, or reports.
 
-```bash
-read -rsp "Telegram bot token: " TELEGRAM_BOT_TOKEN
-export TELEGRAM_BOT_TOKEN
-printf '\n'
-```
-
-### Phase D: Pre-mutation read-only Telegram check
-
-Read-only external API call.
-
-```bash
-curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
-```
-
-Record only sanitized evidence:
-
-- whether `ok` is true;
-- whether an existing webhook URL is empty or non-empty;
-- do not record token;
-- do not record full URL if it contains sensitive tunnel/account identifiers.
-
-If an existing webhook is present and is not known to belong to this disposable reviewer bot, abort.
-
-### Explicit GO Boundary
-
-Stop here.
-
-The first mutation is the next command. It must not run without an explicit human message:
-
+### 3.2. Explicit GO Boundary for Phase 2
 ```text
-GO first live Telegram webhook apply
+GO Phase 2: Telegram webhook smoke against Render URL
 ```
 
-### Phase E: Set webhook
+### 3.3. Phase 2 Execution Steps
+1. Re-deploy the Render Web Service (similar to Phase 1).
+2. Export the disposable bot token locally:
+   ```bash
+   read -rsp "Telegram bot token: " TELEGRAM_BOT_TOKEN
+   export TELEGRAM_BOT_TOKEN
+   ```
+3. Query pre-mutation webhook state:
+   ```bash
+   curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+   ```
+   Abort if any existing configured webhook belongs to a non-disposable bot.
+4. Set Webhook to Render endpoint:
+   ```bash
+   curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+     -d "url=https://<service-name>.onrender.com/webhook/telegram"
+   ```
+   Expected: `ok=true`.
+5. Verify webhook registration:
+   ```bash
+   curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+   ```
+   Expected: Webhook URL points to the Render service.
+6. Send one synthetic test message to the disposable bot on Telegram (e.g., "Add lemon pasta recipe").
+7. Verify Render service logs to confirm it received and processed the webhook update.
 
-Live mutation.
+### 3.4. Phase 2 Cleanup Plan
+1. Delete the webhook:
+   ```bash
+   curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook"
+   ```
+2. Verify empty webhook:
+   ```bash
+   curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+   ```
+   Expected: Webhook URL is empty.
+3. Delete the Render Web Service in the dashboard.
+4. Clear the local token from the terminal session.
 
-```bash
-curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  -d "url=https://<temporary-host>/webhook/telegram"
-```
+---
 
-Expected:
+## 4. Abort & Rollback Conditions
 
-- Telegram response `ok=true`;
-- no token printed except in the command line typed by the operator;
-- runtime terminal receives webhook updates only after the reviewer sends messages to the disposable bot.
+### Abort Before Mutation if:
+- Any billing or credit card requirement is prompted on Render.
+- Render requests elevated permissions to your personal GitHub repositories (access should be restricted to this public repository only).
+- Local container preflight `/health` check fails.
 
-### Phase F: Verify webhook state
+### Rollback on Failure:
+- If deployment fails or `/health` returns non-200, delete the Render service immediately.
+- If Phase 2 webhook fails to set or respond, execute `deleteWebhook` immediately, verify the empty state, and delete the Render service.
 
-Read-only external API call.
+---
 
-```bash
-curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
-```
-
-Expected:
-
-- `ok=true`;
-- webhook URL points to the temporary tunnel.
-
-### Phase G: Human smoke
-
-Manual Telegram action.
-
-Send one synthetic message to the disposable bot:
-
-```text
-Добавь рецепт лимонной пасты с базиликом
-```
-
-Expected:
-
-- local runtime receives the update;
-- response is deterministic and synthetic;
-- no real personal data is sent.
-
-## 4. Expected Mutations
-
-External mutations:
-
-- Telegram webhook URL for the disposable bot is set to the temporary tunnel endpoint.
-
-Local/runtime mutations:
-
-- local runtime process handles synthetic request logs in terminal output;
-- no git-tracked file changes are expected;
-- no `.env` or state file changes are expected.
-
-No Supabase, Render, Gemini, cloud database, or repository settings are modified.
-
-## 5. Rollback / Cleanup Plan
-
-### Normal cleanup
-
-Live mutation rollback.
-
-```bash
-curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook"
-```
-
-Verify cleanup:
-
-```bash
-curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
-```
-
-Expected:
-
-- `ok=true`;
-- webhook URL is empty.
-
-Then stop:
-
-- local runtime process;
-- temporary HTTPS tunnel;
-- shell session containing `TELEGRAM_BOT_TOKEN`.
-
-### Partial failure handling
-
-| Failure | Action |
-|---|---|
-| Tunnel dies after webhook is set | Run `deleteWebhook`, verify empty webhook, then stop. |
-| Runtime returns non-200 | Run `deleteWebhook`; preserve sanitized runtime output for diagnosis. |
-| `setWebhook` returns `ok=false` | Do not retry blindly; inspect sanitized error description and abort. |
-| `deleteWebhook` fails | Retry once after 30 seconds. If still failing, use BotFather or Telegram API manually from a clean shell and record sanitized failure. |
-| Existing webhook found before apply | Abort unless it is explicitly known to be disposable and safe to overwrite. |
-
-## 6. Smoke Criteria
-
-PASS if all are true:
-
-- local runtime `/health` returns `HTTP 200`;
-- temporary HTTPS `/health` returns `HTTP 200`;
-- `getWebhookInfo` before apply is understood and safe;
-- `setWebhook` returns `ok=true`;
-- `getWebhookInfo` after apply points to the temporary endpoint;
-- one synthetic Telegram message reaches the local runtime;
-- `deleteWebhook` returns `ok=true`;
-- final `getWebhookInfo` shows no active webhook;
-- no secrets are written to git, docs, task artifacts, or shared screenshots.
-
-FAIL if any are true:
-
-- token value appears in committed files, logs intended for sharing, reports, or chat;
-- Telegram webhook remains configured after cleanup;
-- tunnel or account flow requests unexpected permissions;
-- any Supabase/Render/Gemini mutation occurs;
-- non-synthetic personal data is sent through the disposable bot.
-
-## 7. Abort Conditions
-
-Abort before mutation if:
-
-- a billing/card requirement appears;
-- OAuth permission scope is broader than expected;
-- a tool requests storing token in a file;
-- the operator cannot verify rollback;
-- a non-disposable bot token is used;
-- the temporary URL is not HTTPS;
-- local runtime health check fails;
-- public/private boundary is unclear.
-
-Abort after mutation and immediately run cleanup if:
-
-- runtime endpoint is unhealthy;
-- Telegram response shows unexpected webhook target;
-- synthetic smoke cannot be completed quickly;
-- any unexpected external resource appears.
-
-## 8. Evidence After Run
-
-Allowed evidence:
-
-- final PASS/FAIL summary;
-- sanitized `ok=true/false` Telegram API status;
-- sanitized webhook host category, for example `temporary HTTPS tunnel`;
-- local runtime status codes;
-- statement that final webhook is empty after cleanup.
-
-Do not commit or share:
-
-- bot token;
-- full temporary tunnel URL if it embeds account or random identifiers;
-- raw Telegram update payload containing user identifiers;
-- screenshots with token, bot username, account profile, or tunnel dashboard.
-
-## 9. Current Implementation Caveat
-
-The public runtime currently supports local HTTP webhook simulation. It does not yet provide a first-class CLI subcommand that performs `getWebhookInfo`, `setWebhook`, or `deleteWebhook`.
-
-Therefore this GO package is a human/operator decision package, not an automated live deployer. Automating these API calls should be a later task after this manual live boundary is validated.
+## 5. Allowed Evidence
+To keep credentials and infrastructure details private:
+- Allowed: Statement that `/health` returned `HTTP 200`.
+- Allowed: Screenshot of the `/health` JSON response (hiding the Render domain name if it contains sensitive identifiers).
+- Forbidden: Bot tokens, full Render service URLs, Render account IDs, or raw Telegram user IDs in screenshots or logs.
