@@ -378,8 +378,156 @@ def run_plan(json_mode: bool) -> int:
     return 0
 
 
-def run_apply(dry_run: bool, json_mode: bool) -> int:
-    """Выполняет сухой расчет (dry-run) или применение изменений развертывания (apply)."""
+def run_apply(dry_run: bool, json_mode: bool, preflight: bool = False, read_only: bool = False) -> int:
+    """Выполняет сухой расчет (dry-run), проверку готовности (preflight) или применение изменений (apply)."""
+    if preflight:
+        status_py, msg_py = check_python()
+        status_uv, msg_uv = check_uv()
+        status_docker, msg_docker = check_docker()
+        status_sb, msg_sb = check_supabase()
+        status_render, msg_render = check_render()
+        has_fail = any(s == "FAIL" for s in [status_py, status_uv, status_docker, status_sb, status_render])
+
+        plan = generate_bootstrap_plan()
+
+        step_cli = ReadOnlyExternalCheckStep(
+            step_id="cli_tools",
+            name="Проверка наличия и версий CLI инструментов",
+            status="blocked" if has_fail else "ready",
+            message="Критические CLI инструменты не найдены. См. 'bootstrap doctor' для подробностей." if has_fail else "Все CLI инструменты доступны",
+            details={
+                "python": {"present": status_py == "OK", "version_info": msg_py},
+                "uv": {"present": status_uv == "OK", "version_info": msg_uv},
+                "docker": {"present": status_docker in ("OK", "WARN"), "version_info": msg_docker},
+                "supabase": {"present": status_sb == "OK", "version_info": msg_sb},
+                "render": {"present": status_render == "OK", "version_info": msg_render}
+            }
+        )
+
+        auth_env_details = {
+            "supabase_access_token_present": bool(os.environ.get("SUPABASE_ACCESS_TOKEN")),
+            "render_api_key_present": bool(os.environ.get("RENDER_API_KEY")),
+            "telegram_bot_token_present": bool(os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN")),
+        }
+
+        step_auth = OfflineDryRunStep(
+            step_id="auth_presence",
+            name="Наличие токенов авторизации",
+            status="ready",
+            message="Проверено наличие необходимых токенов в окружении (без вывода значений)",
+            details=auth_env_details
+        )
+
+        planned_details = {
+            "supabase_project_name": plan.supabase_project_name,
+            "supabase_organization": plan.supabase_organization,
+            "render_web_service_name": plan.render_web_service_name,
+            "render_environment_group": plan.render_environment_group,
+            "webhook_target_url": plan.webhook_target_url
+        }
+
+        step_targets = OfflineDryRunStep(
+            step_id="planned_targets",
+            name="Параметры планируемых целевых ресурсов",
+            status="ready",
+            message="Сгенерированы целевые имена ресурсов и URL на основе рабочей директории",
+            details=planned_details
+        )
+
+        step_supabase = FutureLiveMutationStep(
+            step_id="supabase_mutation",
+            name="Применение изменений в Supabase (создание проекта и миграции)",
+            status="requires_approval",
+            message="Будущее создание проекта Supabase и применение миграций базы данных (требует подтверждения)",
+            details={"actions": plan.stages[0]["actions"]}
+        )
+
+        step_render = FutureLiveMutationStep(
+            step_id="render_mutation",
+            name="Применение изменений в Render (веб-сервис и группа окружения)",
+            status="requires_approval",
+            message="Будущее создание веб-сервиса Render и группы окружения (требует подтверждения)",
+            details={"actions": plan.stages[1]["actions"]}
+        )
+
+        step_telegram = FutureLiveMutationStep(
+            step_id="telegram_mutation",
+            name="Настройка Telegram бота (вебхук и команды)",
+            status="requires_approval",
+            message="Будущая установка вебхука Telegram и регистрация команд (требует подтверждения)",
+            details={"actions": plan.stages[2]["actions"]}
+        )
+
+        step_smoke = FutureLiveMutationStep(
+            step_id="smoke_test_mutation",
+            name="Проверка работоспособности (Smoke Test)",
+            status="requires_approval",
+            message="Будущая отправка тестовых запросов для валидации (требует подтверждения)",
+            details={"actions": plan.stages[3]["actions"]}
+        )
+
+        step_gate = HumanApprovalBoundaryStep(
+            step_id="live_apply_gate",
+            name="Explicit Approval Gate for Live Apply",
+            status="blocked",
+            message="Будущее реальное применение изменений (live apply) требует отдельного явного подтверждения и в данный момент не реализовано."
+        )
+
+        steps = [
+            step_cli,
+            step_auth,
+            step_targets,
+            step_supabase,
+            step_render,
+            step_telegram,
+            step_smoke,
+            step_gate
+        ]
+
+        state = BootstrapState(
+            dry_run=True,
+            message="Выполнены preflight проверки перед будущим live apply. Изменения в облачных ресурсах не производились.",
+            steps=steps,
+            metadata={
+                "read_only": True,
+                "preflight": True,
+                "explicit_next_gate": "future live apply requires separate approval and is not implemented"
+            }
+        )
+
+        if json_mode:
+            print(json.dumps(state.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            print("=== ADR Bootstrap Apply Preflight (READ-ONLY) ===")
+            print("Внимание: Выполняются preflight проверки готовности. Никаких изменений в реальной инфраструктуре не производится.")
+            print("Ссылка на полную диагностику: 'bootstrap doctor' или 'bootstrap checks'.")
+            print()
+
+            for idx, step in enumerate(state.steps, 1):
+                print(f"{idx}. {step.name} [{step.status.upper()}] (Boundary: {step.boundary})")
+                print(f"   Сообщение: {step.message}")
+                if step.step_id == "cli_tools":
+                    for tool, info in step.details.items():
+                        present_str = "доступен" if info["present"] else "НЕ доступен"
+                        print(f"   - {tool:<10}: {present_str} ({info['version_info']})")
+                elif step.step_id == "auth_presence":
+                    for env_var, present in step.details.items():
+                        present_str = "присутствует" if present else "отсутствует"
+                        print(f"   - {env_var:<30}: {present_str}")
+                elif step.step_id == "planned_targets":
+                    for key, val in step.details.items():
+                        print(f"   - {key:<26}: {val}")
+                elif "actions" in step.details:
+                    for action in step.details["actions"]:
+                        print(f"   [ ] {action}")
+                print()
+
+            print("-" * 50)
+            print("GATE: Future live apply requires separate approval and is not implemented.")
+            print("=" * 38)
+
+        return 1 if has_fail else 0
+
     if not dry_run:
         print("Ошибка: На текущем этапе поддерживается только сухой запуск (--dry-run).", file=sys.stderr)
         return 1

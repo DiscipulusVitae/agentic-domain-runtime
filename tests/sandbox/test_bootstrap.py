@@ -239,7 +239,70 @@ async def test_cli_bootstrap_apply_no_dry_run_fail(capsys):
         assert exc_info.value.code != 0
 
     captured = capsys.readouterr()
-    assert "Команда apply требует указания флага --dry-run" in captured.err
+    assert "Команда apply требует указания флага --dry-run или комбинации --preflight --read-only" in captured.err
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_ok)
+async def test_cli_bootstrap_apply_preflight_ok(mock_run, capsys):
+    """Проверяет успешный запуск preflight --read-only и текстовый вывод."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--preflight", "--read-only"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    out = captured.out
+    assert "=== ADR Bootstrap Apply Preflight (READ-ONLY) ===" in out
+    assert "Проверка наличия и версий CLI инструментов" in out
+    assert "Наличие токенов авторизации" in out
+    assert "Параметры планируемых целевых ресурсов" in out
+    assert "Применение изменений в Supabase" in out
+    assert "Применение изменений в Render" in out
+    assert "GATE: Future live apply requires separate approval and is not implemented." in out
+
+    # Проверка отсутствия секретов
+    assert ("TELEGRAM_" + "BOT_TOKEN=") not in out
+    assert ("RENDER_" + "API_KEY=") not in out
+    assert ("SUPABASE_" + "ACCESS_TOKEN=") not in out
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_ok)
+async def test_cli_bootstrap_apply_preflight_json_ok(mock_run, capsys):
+    """Проверяет успешный запуск preflight --read-only --json и JSON вывод."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--preflight", "--read-only", "--json"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["dry_run"] is True
+    assert "preflight" in data["metadata"]
+    assert data["metadata"]["preflight"] is True
+    assert data["metadata"]["read_only"] is True
+    assert data["metadata"]["explicit_next_gate"] == "future live apply requires separate approval and is not implemented"
+
+    steps = {s["step_id"]: s for s in data["steps"]}
+    assert "cli_tools" in steps
+    assert "auth_presence" in steps
+    assert "planned_targets" in steps
+    assert "supabase_mutation" in steps
+    assert steps["supabase_mutation"]["status"] == "requires_approval"
+
+
+@pytest.mark.asyncio
+async def test_cli_bootstrap_apply_preflight_no_readonly_fail(capsys):
+    """Проверяет, что запуск preflight без --read-only падает с ошибкой."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--preflight"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code != 0
+
+    captured = capsys.readouterr()
+    assert "Команда apply с флагом --preflight требует обязательного указания флага --read-only" in captured.err
+
 
 
 @pytest.mark.asyncio

@@ -58,6 +58,12 @@ graph TD
   - Test Telegram bot token validity (via `getMe`).
   - Verify that the target Supabase project exists and is accessible.
 * **Outcome**: Verification that all external APIs are reachable and credentials are correct before executing any mutations.
+* **CLI Contract (Safe Preflight)**:
+  - `uv run python -m src.sandbox bootstrap apply --preflight --read-only`: Performs offline and read-only diagnostics of environment readiness.
+  - `uv run python -m src.sandbox bootstrap apply --preflight --read-only --json`: Outputs the preflight check status in machine-readable JSON using `BootstrapState` / `BootstrapStep` vocabulary.
+  - **Safety Gate**: Running `--preflight` without `--read-only` or running plain `apply` without `--dry-run` is blocked.
+
+
 
 ### Phase III: Apply
 * **Inputs**: Approved execution plan.

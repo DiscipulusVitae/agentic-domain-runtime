@@ -133,6 +133,9 @@ uv run python -m src.sandbox bootstrap telegram --webhook --dry-run
 # Dry-run end-to-end apply stages (prepares the final deployment checklist)
 uv run python -m src.sandbox bootstrap apply --dry-run
 
+# Safe preflight check before future live apply (verifies environment readiness, read-only)
+uv run python -m src.sandbox bootstrap apply --preflight --read-only
+
 # Dry-run post-deployment smoke validation simulation
 uv run python -m src.sandbox bootstrap smoke --dry-run
 ```

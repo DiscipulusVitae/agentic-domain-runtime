@@ -212,6 +212,8 @@ async def async_main() -> None:
         apply_parser = subparsers.add_parser("apply", help="Применить изменения развертывания")
         apply_parser.add_argument("--dry-run", action="store_true", help="Показать план без реальных изменений")
         apply_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+        apply_parser.add_argument("--preflight", action="store_true", help="Запустить preflight проверку")
+        apply_parser.add_argument("--read-only", action="store_true", help="Подтвердить read-only режим для preflight")
 
         smoke_parser = subparsers.add_parser("smoke", help="Выполнить проверку работоспособности (smoke checks)")
         smoke_parser.add_argument("--dry-run", action="store_true", help="Показать план проверок без реальных вызовов")
@@ -243,9 +245,16 @@ async def async_main() -> None:
         elif args.bootstrap_cmd == "plan":
             sys.exit(run_plan(json_mode=args.json))
         elif args.bootstrap_cmd == "apply":
-            if not args.dry_run:
-                bootstrap_parser.error("Команда apply требует указания флага --dry-run в текущей версии.")
-            sys.exit(run_apply(dry_run=args.dry_run, json_mode=args.json))
+            if args.preflight and not args.read_only:
+                bootstrap_parser.error("Команда apply с флагом --preflight требует обязательного указания флага --read-only.")
+            if not args.dry_run and not (args.preflight and args.read_only):
+                bootstrap_parser.error("Команда apply требует указания флага --dry-run или комбинации --preflight --read-only.")
+            sys.exit(run_apply(
+                dry_run=args.dry_run,
+                json_mode=args.json,
+                preflight=args.preflight,
+                read_only=args.read_only
+            ))
         elif args.bootstrap_cmd == "smoke":
             if not args.dry_run:
                 bootstrap_parser.error("Команда smoke требует указания флага --dry-run в текущей версии.")
