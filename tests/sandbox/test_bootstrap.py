@@ -87,8 +87,37 @@ async def test_cli_bootstrap_doctor_json_ok(mock_run, capsys):
 
 @pytest.mark.asyncio
 @patch("subprocess.run", side_effect=mock_subprocess_run_fail)
-async def test_cli_bootstrap_doctor_fail(mock_run, capsys):
-    """Проверяет падение doctor при отсутствии supabase CLI."""
+async def test_cli_bootstrap_doctor_optional_missing(mock_run, capsys):
+    """Проверяет прохождение doctor при отсутствии опционального supabase CLI (неблокирующий FAIL)."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "doctor"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    assert "=== ADR Bootstrap Doctor ===" in captured.out
+    assert "[FAIL]   supabase" in captured.out
+    assert "Внимание: Отсутствуют некоторые опциональные инструменты" in captured.out
+    assert "Подсказка: Установите Supabase CLI через npm" in captured.out
+
+
+def mock_subprocess_run_critical_fail(args, **kwargs):
+    mock_res = MagicMock()
+    cmd = args[0]
+    if cmd == "uv":
+        mock_res.returncode = 127
+        mock_res.stderr = "uv not found"
+        mock_res.stdout = ""
+    else:
+        mock_res.returncode = 0
+        mock_res.stdout = "mocked ok"
+    return mock_res
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_critical_fail)
+async def test_cli_bootstrap_doctor_critical_missing(mock_run, capsys):
+    """Проверяет падение doctor при отсутствии критического uv."""
     with patch("sys.argv", ["cli.py", "bootstrap", "doctor"]):
         with pytest.raises(SystemExit) as exc_info:
             await async_main()
@@ -96,8 +125,25 @@ async def test_cli_bootstrap_doctor_fail(mock_run, capsys):
 
     captured = capsys.readouterr()
     assert "=== ADR Bootstrap Doctor ===" in captured.out
-    assert "[FAIL]   supabase" in captured.out
-    assert "Ошибка: Обнаружены критические проблемы в локальном окружении." in captured.out
+    assert "[FAIL]   uv" in captured.out
+    assert "Ошибка: Обнаружены критические проблемы в локальном окружении" in captured.out
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_fail)
+async def test_cli_bootstrap_doctor_json_optional_missing(mock_run, capsys):
+    """Проверяет doctor --json в случае отсутствия опциональных утилит."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "doctor", "--json"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["status"] == "success"
+    assert data["checks"]["supabase"]["status"] == "FAIL"
+    assert "hint" in data["checks"]["supabase"]
+    assert "action" in data["checks"]["supabase"]
 
 
 @pytest.mark.asyncio
@@ -290,6 +336,36 @@ async def test_cli_bootstrap_apply_preflight_json_ok(mock_run, capsys):
     assert "planned_targets" in steps
     assert "supabase_mutation" in steps
     assert steps["supabase_mutation"]["status"] == "requires_approval"
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_fail)
+async def test_cli_bootstrap_apply_preflight_optional_missing(mock_run, capsys):
+    """Проверяет успешный запуск preflight --read-only при отсутствии опционального supabase CLI (exit code 0)."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--preflight", "--read-only"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 0
+
+    captured = capsys.readouterr()
+    out = captured.out
+    assert "=== ADR Bootstrap Apply Preflight (READ-ONLY) ===" in out
+    assert "Опциональные CLI инструменты отсутствуют" in out
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_critical_fail)
+async def test_cli_bootstrap_apply_preflight_critical_missing(mock_run, capsys):
+    """Проверяет падение preflight --read-only при отсутствии критического uv CLI (exit code 1)."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "apply", "--preflight", "--read-only"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    out = captured.out
+    assert "=== ADR Bootstrap Apply Preflight (READ-ONLY) ===" in out
+    assert "Критические CLI инструменты" in out
 
 
 @pytest.mark.asyncio

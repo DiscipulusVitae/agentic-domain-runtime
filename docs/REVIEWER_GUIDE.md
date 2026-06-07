@@ -41,6 +41,21 @@ The following capabilities are **explicitly out of scope** for active code execu
 
 Follow these steps in sequence to verify the entire system safely.
 
+### Step 0: Fresh Machine Prerequisites
+If you are onboarding this codebase on a clean machine/container (e.g., fresh `ubuntu:26.04`), install the baseline system dependencies and `uv` package manager:
+```bash
+# 1. Install system utilities
+sudo apt-get update && sudo apt-get install -y ca-certificates git curl
+
+# 2. Install uv package manager
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+> [!NOTE]
+> Only Python (>= 3.13) and `uv` are critical for the **Default Offline Sandbox** flow.
+> Heavy auxiliary tools like Docker, Supabase CLI, and Render CLI are optional and not required to execute the baseline offline scenario/unit tests. Their absence will be reported as warnings by the system diagnostic tool but will not block the review path.
+
 ### Step 1: Offline Sandbox Setup & Unit Tests
 Initialize the environment using `uv` and run the offline unit test suite:
 ```bash
@@ -100,7 +115,11 @@ curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
 *(Once completed, stop the server in Terminal 1 using `Ctrl+C`)*
 
 ### Step 4: Bootstrap Preflight Checks & Local State Management
-Run read-only preflight checks to diagnose local workspace readiness, dependency CLI presence, and verify the local non-secret state file contract:
+Run read-only preflight checks to diagnose local workspace readiness, dependency CLI presence, and verify the local non-secret state file contract.
+
+> [!NOTE]
+> The `bootstrap doctor` command will execute successfully (exit code 0) even if optional tools like Docker, Supabase, or Render CLIs are missing, displaying warnings and installation commands instead of blocking the review process.
+
 ```bash
 # Verify local tool dependency readiness (Python, Docker, Supabase, Render CLIs)
 uv run python -m src.sandbox bootstrap doctor

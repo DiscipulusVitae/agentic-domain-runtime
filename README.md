@@ -43,6 +43,26 @@ The development of the system's infrastructure configuration and setup wizard is
 
 ## Quickstart
 
+### Fresh Machine Prerequisites
+
+If you are running on a clean/fresh machine (e.g., a clean `ubuntu:26.04` container or VM), you need to install basic system dependencies and the `uv` package manager before setting up the repository.
+
+1. **Install system packages (Ubuntu 26.04 / Debian)**
+   ```bash
+   sudo apt-get update && sudo apt-get install -y ca-certificates git curl
+   ```
+
+2. **Install `uv` package manager**
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   # Restart your shell or source the env:
+   source $HOME/.local/bin/env
+   ```
+
+> [!NOTE]
+> For the **Default Offline Sandbox** (Path A), **no other tools** are required (neither Docker, Supabase CLI, nor Render CLI are needed). The sandbox is fully self-contained.
+> Docker and Supabase/Render CLI tools are **optional** and only necessary for the optional local DB execution (Path B) or live cloud deployment planning.
+
 ### Path A: Default Offline Sandbox (Default)
 Runs completely offline with zero infrastructure dependencies. It uses a local fake LLM provider and in-memory persistence mocks to demonstrate the domain routing, extraction, validation, and storage workflows without needing external APIs or a live database.
 
