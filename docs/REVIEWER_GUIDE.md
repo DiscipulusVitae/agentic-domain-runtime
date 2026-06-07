@@ -1,192 +1,158 @@
 # Reviewer Quickstart Guide: agentic-domain-runtime
 
-This document describes the local verification paths for technical reviewers of `agentic-domain-runtime`.
-
-## Reviewer Paths
-
-The codebase supports two distinct verification paths:
-1. **Default Offline Sandbox**: No Docker, no external database, no live API keys required. Runs completely offline.
-2. **Optional Local Supabase**: Verify database migrations, schemas, RLS policies, and SQL smoke scripts locally using Docker and the Supabase CLI.
+This document describes the unified verification paths for technical reviewers of `agentic-domain-runtime`. The guide is structured around a **Single Sequential Safe Path** requiring zero external mutations, secrets, or live network calls.
 
 ---
 
-## Path A: Default Offline Sandbox Setup & Verification
+## 1. Mode Matrix
 
-### 1. Dependency Synchronization
-The project uses `uv` for Python dependency management:
+The codebase operates in distinct modes to allow safe review at different levels of infrastructure availability:
+
+| Mode | Network Required | Secrets Required | State Mutations | Purpose | Key Commands |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Offline** | **No** | **No** | **None** (In-memory mock only) | Offline logic verification, tests, and CLI mock runs | `pytest`, `--scenario <domain> --full`, `runtime serve` |
+| **Read-Only** | **No** | **No** | **None** | Environment diagnostics and local setup readiness verification | `bootstrap checks --read-only`, `bootstrap doctor` |
+| **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run` |
+| **Future Live** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Production deployments and live cloud management | `bootstrap apply` (without `--dry-run`), live production deploy |
+
+---
+
+## 2. Safety Guarantees
+
+Every step in the default reviewer path comes with the following safety guarantees:
+* **No Secrets Required**: Reviewers do not need to supply any live database passwords, API keys (e.g., Gemini, Telegram, Render), or tokens. Placeholder configs are fully sufficient.
+* **No Live API Calls**: No outbound requests to external services (such as Telegram Bot API, Render API, or live LLM endpoints) are executed.
+* **No Cloud/DB/Telegram Mutations**: No state is written or changed in any cloud databases, telegram webhook settings, or hosting servers.
+* **No Private Data**: The sandbox operates entirely on artificial (synthetic) data.
+
+---
+
+## 3. Future Live Boundaries (Out of Scope)
+
+The following capabilities are **explicitly out of scope** for this public milestone:
+* **Live Supabase Apply**: Execution of `supabase db push` or direct cloud schema mutations.
+* **Render Resource/Env Mutation**: Provisioning web services, setting env groups, or altering deploy parameters in Render.
+* **Telegram Bot API Webhook Mutation**: Outbound `setWebhook` API operations or modifying live bot handlers.
+* **Production Deploy**: Merging, building, and deploying the application stack into a live production environment.
+
+---
+
+## 4. The Unified Reviewer Safe Path (Step-by-Step)
+
+Follow these steps in sequence to verify the entire system safely.
+
+### Step 1: Offline Sandbox Setup & Unit Tests
+Initialize the environment using `uv` and run the offline unit test suite:
 ```bash
+# 1. Synchronize Python dependencies
 uv sync
-```
 
-### 2. Environment Profile Template
-A sandbox-first `.env.example` is included. It does not require Telegram credentials, production database credentials, Render configs, or a live LLM key:
-```bash
+# 2. Copy the sandbox-first environment profile template
 cp .env.example .env
-```
 
-### 3. Local Sandbox CLI
-The reviewer path exposes a local sandbox CLI that exercises the runtime with synthetic payloads. You can trigger single domain-routing classification runs:
-```bash
-# Kitchen: recipe processing
-uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
-
-# Books: library cataloging
-uv run python -m src.sandbox "Добавь книгу Хроники Зеленого Архива, Виктор Классик"
-
-# Health: health-log event capture
-uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
-```
-
-The sandbox uses a fake/offline LLM provider by default and in-memory storage for persistence checks. Telegram, live LLM keys, cloud production Supabase, Docker, and local Postgres are not required for the default offline reviewer path.
-
-### 4. Verification Tests
-
-Run the sandbox tests:
-```bash
+# 3. Run the offline test suite
 uv run pytest tests/sandbox -q
 ```
+*Expected Result:* The sandbox test suite passes successfully.
 
-### 5. Smoke Scenario Suites
-To execute complete multi-step validation flows using synthetic mock datasets, run the following:
+### Step 2: Multi-Domain CLI Scenario Runs
+Exercise the runtime domain routing, LLM-assisted data extraction, validation, and storage mocks using the sandbox CLI:
+```bash
+# Run full mock scenarios for each domain (Kitchen, Books, Health)
+uv run python -m src.sandbox --scenario kitchen --full
+uv run python -m src.sandbox --scenario books --full
+uv run python -m src.sandbox --scenario health --full
 
-- **Kitchen domain validation suite**:
-  ```bash
-  uv run python -m src.sandbox --scenario kitchen --full
-  ```
+# Test single domain routing inputs directly
+uv run python -m src.sandbox "Добавь рецепт лимонной пасты с базиликом"
+```
+*Expected Result:* The CLI will parse, validate, and simulate saving to the in-memory database, returning a complete routing trace and simulated agent response.
 
-- **Books domain validation suite**:
-  ```bash
-  uv run python -m src.sandbox --scenario books --full
-  ```
+### Step 3: Local Runtime HTTP Server Smoke Verification
+Start the local HTTP sandbox runtime server (which emulates the webhook listener interface) and execute verification requests:
+```bash
+# 1. Start the server (run this in Terminal 1)
+uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
+```
+In another terminal (Terminal 2), run the following tests:
+```bash
+# 2. Health check (Verify registered agents & server status)
+curl -sS -i http://127.0.0.1:8000/health
 
-- **Health-Log (medical) domain validation suite**:
-  ```bash
-  uv run python -m src.sandbox --scenario health --full
-  ```
+# 3. Debug Storage Check (Verify initial counts)
+curl -sS -i http://127.0.0.1:8000/debug/storage
 
-The synthetic fixtures validate:
-- Butler intent routing and classification.
-- LLM orchestration/extraction payloads and schema parsing.
-- Domain assembly capture flow, including deterministic validation rules and persistence boundaries.
-- In-memory persistence mock inspection using synthetic data.
+# 4. Valid Webhook Payload (Simulate Telegram message routing)
+curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"text":"Добавь рецепт борща"}}'
 
-All test suites must run purely against these synthetic datasets, ensuring no production data or credentials are required.
+# 5. Invalid Webhook Payload (Verify error handling and controlled 400 response)
+curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{}}'
+```
+*Expected Result:*
+* `/health` returns `HTTP 200 OK` with registered agent names.
+* `/webhook/telegram` (valid) returns `HTTP 200 OK` containing routing details and bot response.
+* `/webhook/telegram` (invalid) returns `HTTP 400 Bad Request` with an explanation.
 
-### 6. Runtime HTTP Server Smoke Test
-The sandbox also provides an HTTP server to simulate the webhook listener interface:
+*(Once completed, stop the server in Terminal 1 using `Ctrl+C`)*
 
-1. **Start the local HTTP sandbox runtime server**:
-   ```bash
-   uv run python -m src.sandbox runtime serve --host 127.0.0.1 --port 8000
-   ```
-2. **Execute validation queries** in another terminal to test the server's endpoints:
-   - **Health Check** (verifies registration of routing and domain agents):
-     ```bash
-     curl -sS -i http://127.0.0.1:8000/health
-     ```
-     *Expected Response (HTTP 200 OK):* A JSON listing status "ok", active domains, and registered agent IDs.
+### Step 4: Bootstrap Preflight Checks (Read-Only)
+Run read-only preflight checks to diagnose local workspace readiness, dependency CLI presence, and potential target resource plans:
+```bash
+# Verify local tool dependency readiness (Python, Docker, Supabase, Render CLIs)
+uv run python -m src.sandbox bootstrap doctor
 
-   - **Debug Storage Check** (sandbox-only endpoint to observe synthetic aggregate counts per domain):
-     ```bash
-     curl -sS -i http://127.0.0.1:8000/debug/storage
-     ```
-     *Expected Response (HTTP 200 OK):* JSON containing status, description, aggregate counts per domain, and lists of recent synthetic items.
+# Run read-only preflight checks (verifies presence of variables safely without mutating anything)
+uv run python -m src.sandbox bootstrap checks --read-only
+```
+*Expected Result:* Diagnostics are output, highlighting which CLI tools are installed and which environment variables are missing/present (without exposing secret values).
 
-   - **Valid Webhook Request** (simulates incoming Telegram message):
-     ```bash
-     curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
-       -H 'Content-Type: application/json' \
-       -d '{"message":{"text":"Добавь рецепт борща"}}'
-     ```
-     *Expected Response (HTTP 200 OK):* JSON structure containing routing classification decision, trace, and the natural text response generated by the fake domain assistant.
+### Step 5: Local Supabase Dry-Run Plan
+Verify the local Supabase configuration, relational schemas, migrations, seeds, and SQL smoke scripts:
+```bash
+# Inspect the target resource topology plan
+uv run python -m src.sandbox bootstrap plan
 
-   - **Invalid Webhook Request** (verifies error-handling constraints):
-     ```bash
-     curl -sS -i -X POST http://127.0.0.1:8000/webhook/telegram \
-       -H 'Content-Type: application/json' \
-       -d '{"message":{}}'
-     ```
-     *Expected Response (HTTP 400 Bad Request):* JSON structure containing `"error": "Missing or invalid 'message' field"`.
+# Verify local Supabase asset layout (validates migrations, config, and seed files locally)
+uv run python -m src.sandbox bootstrap supabase --local --dry-run
 
-Note: The `runtime smoke` command sequentially validates `/health`, `/debug/storage` initial counts, a valid synthetic webhook payload, the persistence count increment, and invalid payload error responses.
+# Simulate the interactive install wizard flow (simulates the 10-step bootstrap checklist)
+uv run python -m src.sandbox bootstrap install --dry-run
+```
+*Expected Result:* The simulator outputs a list of validated migrations, config layouts, and the planned wizard execution checklist.
 
+### Step 6: Telegram Webhook Readiness Simulation
+Simulate the final webhook deployment configuration, verification checklists, and smoke checks without calling live APIs:
+```bash
+# Dry-run Telegram Bot API token handoff and webhook target mapping
+uv run python -m src.sandbox bootstrap telegram --webhook --dry-run
 
-### 7. Runtime Bootstrap CLI Commands
-The codebase provides initialization utility commands to verify system requirements, visualize target topology, and dry-run apply configuration stages without making external network or cloud resource modifications:
+# Dry-run end-to-end apply stages (prepares the final deployment checklist)
+uv run python -m src.sandbox bootstrap apply --dry-run
 
-- **Checks (Read-Only)**: Run read-only preflight checks for local environment readiness, credentials presence (without leaking values), target topology, and future API check descriptors without making mutations or executing network requests:
-  ```bash
-  uv run python -m src.sandbox bootstrap checks --read-only
-  ```
-  Or output in machine-readable JSON format:
-  ```bash
-  uv run python -m src.sandbox bootstrap checks --read-only --json
-  ```
-
-- **Doctor**: Run verification checks for local runtime dependencies (Python, Docker, Supabase, Render CLI):
-  ```bash
-  uv run python -m src.sandbox bootstrap doctor
-  ```
-
-- **Plan**: Generate a local-first read-only deployment plan topology:
-  ```bash
-  uv run python -m src.sandbox bootstrap plan
-  ```
-
-- **Install (Dry-Run)**: Simulate the complete interactive installation wizard flow, sequentially verifying the 10-step wizard (checking requirements, showing auth guidance, Bot setup, plan, user approval boundary, dry-run apply, smoke test simulation, local ignored state policy) without gathering secrets or executing mutations:
-  ```bash
-  uv run python -m src.sandbox bootstrap install --dry-run
-  ```
-
-- **Apply (Dry-Run)**: Simulate the end-to-end cloud and Telegram application stages, returning a deterministic plan/checklist:
-  ```bash
-  uv run python -m src.sandbox bootstrap apply --dry-run
-  ```
-
-- **Smoke (Dry-Run)**: Simulate the post-deployment smoke validation checks (local & cloud health status, synthetic valid webhook payload, controlled invalid webhook payload) without executing network requests or Telegram API calls:
-  ```bash
-  uv run python -m src.sandbox bootstrap smoke --dry-run
-  ```
-
-- **Supabase (Local Dry-Run)**: Run a local dry-run verification for Supabase local package files (config, migrations, seeds, smoke scripts) without starting docker or mutating schemas:
-  ```bash
-  uv run python -m src.sandbox bootstrap supabase --local --dry-run
-  ```
-  Or output in machine-readable JSON format:
-  ```bash
-  uv run python -m src.sandbox bootstrap supabase --local --dry-run --json
-  ```
-
-- **Telegram Webhook (Dry-Run)**: Run a dry-run verification of the Telegram bot setup and planned webhook configuration:
-  ```bash
-  uv run python -m src.sandbox bootstrap telegram --webhook --dry-run
-  ```
-  Or output in machine-readable JSON format:
-  ```bash
-  uv run python -m src.sandbox bootstrap telegram --webhook --dry-run --json
-  ```
+# Dry-run post-deployment smoke validation simulation
+uv run python -m src.sandbox bootstrap smoke --dry-run
+```
+*Expected Result:* All commands complete successfully, producing a detailed plan/checklist of target steps and validations.
 
 ---
 
 ## Path B: Optional Local Supabase Setup & Verification
 
-For reviewers analyzing our PostgreSQL/Supabase boundaries, we provide a public-safe ready-to-run Supabase package, a local SQL smoke script, and a runbook:
-- Refer to **[Local Supabase Package](../supabase/README.md)** for local migrations, RLS policies, configuration, seeds, and the `smoke.sql` validation script.
-- Refer to the **[Local Supabase Runbook](RUNBOOK_LOCAL_SUPABASE.md)** for the optional local-first verification path guide.
-
-You can also run a safe preflight check to verify the presence of all required local Supabase configuration assets:
-```bash
-uv run python -m src.sandbox bootstrap supabase --local --dry-run
-```
+For reviewers analyzing our PostgreSQL/Supabase boundaries:
+* Refer to **[Local Supabase Package](../supabase/README.md)** for local migrations, RLS policies, configuration, seeds, and the `smoke.sql` validation script.
+* Refer to the **[Local Supabase Runbook](RUNBOOK_LOCAL_SUPABASE.md)** for the optional local-first verification path guide.
 
 ---
 
 ## Publication Gates
 
-Before public push, the checkout must pass:
-- `uv sync`
-- `uv run pytest tests/sandbox -q`
-- sandbox CLI smoke commands above (all three `--scenario <domain> --full` suites)
-- HTTP server smoke tests (/health, valid webhook, invalid webhook)
-- private-data and secret scans (using tools like `gitleaks`)
-
+Before any public push, the checkout must pass:
+* `uv sync`
+* `uv run pytest tests/sandbox -q`
+* Sandbox CLI smoke commands above (`--scenario <domain> --full` suites)
+* HTTP server smoke tests (/health, valid webhook, invalid webhook)
+* Private-data and secret scans (using tools like `gitleaks`)

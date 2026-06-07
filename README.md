@@ -35,6 +35,12 @@ The codebase supports two distinct verification paths for technical reviewers:
 1. **Default Offline Sandbox (No Docker, No DB)**: Runs completely offline, using a fake/offline LLM provider and in-memory persistence.
 2. **Optional Local Supabase (Docker + Supabase CLI)**: Allows verifying relational schemas, migrations, RLS policies, seeds, and SQL smoke scripts locally.
 
+## Milestone Status & Roadmap
+
+The development of the system's infrastructure configuration and setup wizard is split into phases:
+* **Phase 4: Bootstrap Safe Path (Current Milestone - COMPLETE)**: Focuses on establishing a comprehensive, local-first review environment. All dependency preflight checks, resource topology planning, local Supabase plan configurations, and Telegram webhook readiness validations run entirely in dry-run/offline sandbox mode, requiring zero secrets or cloud resources.
+* **Phase 5: Live Apply (Future Horizon - OUT OF SCOPE)**: Encompasses the activation of live cloud resource mutations (actual Supabase cloud database creations, Render environment variable writes, live Telegram bot webhook updates, and production deployment pipeline activation). This remains in a future horizon and is explicitly out of scope for the current public portfolio milestone.
+
 ## Quickstart
 
 ### Path A: Default Offline Sandbox (Default)
