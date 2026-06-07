@@ -28,5 +28,5 @@ RUN cp .env.example .env
 # Install the project package.
 RUN uv sync --frozen
 
-# Default to an interactive shell for manual reviewer exploration.
-CMD ["/bin/bash"]
+# Default to running the sandbox server, using the PORT environment variable if present.
+CMD ["/bin/sh", "-c", "uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port ${PORT:-10000}"]

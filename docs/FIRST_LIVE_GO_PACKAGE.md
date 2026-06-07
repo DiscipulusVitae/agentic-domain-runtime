@@ -35,10 +35,7 @@ This phase validates that `agentic-domain-runtime` can be successfully built and
 - **Billing:** Render Free Tier must be used. No credit card should be requested or linked for this smoke. If a billing prompt or card requirement appears, abort immediately.
 - **Service Type:** Web Service.
 - **Deployment Source:** Public Git repository URL (`https://github.com/DiscipulusVitae/agentic-domain-runtime.git`). Do not use the GitHub provider connection to avoid auto-deploy/PR preview setups.
-- **Docker Command:** Specify the custom start command because the default Dockerfile CMD launches an interactive shell (`/bin/bash`):
-  ```bash
-  /bin/sh -c 'uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port ${PORT:-10000}'
-  ```
+- **Docker Command:** The default Dockerfile CMD is configured to serve the runtime on `${PORT:-10000}`, so no start command override is required in the CLI command.
 - **Environment Variables:** None are required for `/health` smoke (disables DB and API dependencies).
 
 ### 2.2. Pre-mutation Local Validation
@@ -72,7 +69,7 @@ GO Phase 1: Render minimal HTTPS runtime smoke
    render whoami
    ```
 2. **Create Render Service via CLI:**
-   Run the creation command targeting the public Git URL, specifying the custom Docker start command and setting auto-deploy to false:
+   Run the creation command targeting the public Git URL, setting auto-deploy to false (no start command override is needed since it is defined in the Dockerfile):
    ```bash
    render services create \
      --name adr-runtime-smoke \
@@ -80,7 +77,6 @@ GO Phase 1: Render minimal HTTPS runtime smoke
      --repo https://github.com/DiscipulusVitae/agentic-domain-runtime.git \
      --runtime docker \
      --branch main \
-     --start-command "/bin/sh -c 'uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port \${PORT:-10000}'" \
      --plan free \
      --auto-deploy=false \
      --health-check-path /health \
