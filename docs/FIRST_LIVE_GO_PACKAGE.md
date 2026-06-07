@@ -35,9 +35,13 @@ This phase validates that `agentic-domain-runtime` can be successfully built and
 - **Billing:** Render Free Tier must be used. No credit card should be requested or linked for this smoke. If a billing prompt or card requirement appears, abort immediately.
 - **Service Type:** Web Service.
 - **Deployment Source:**
-  - Repository: Public GitHub repository containing `agentic-domain-runtime`.
+  - Repository: Public Git repository URL (`https://github.com/DiscipulusVitae/agentic-domain-runtime.git`). Do not use the GitHub provider connection to avoid auto-deploy/PR preview setups and permissions request.
   - Branch: `main` (or a designated release branch).
   - Runtime: Docker (detected via `Dockerfile` in the root).
+- **Docker Command:** Specify the custom start command because the default Dockerfile CMD launches an interactive shell (`/bin/bash`):
+  ```bash
+  /bin/sh -c 'uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port ${PORT:-10000}'
+  ```
 - **Environment Variables:** None are required for `/health` smoke (disables DB and API dependencies).
 
 ### 2.2. Pre-mutation Local Validation
@@ -64,8 +68,12 @@ GO Phase 1: Render minimal HTTPS runtime smoke
 1. **Create Render Service:**
    - Log into the Render Dashboard.
    - Create a new **Web Service**.
-   - Connect the public `agentic-domain-runtime` GitHub repository.
+   - Select **Public Git repository** (do not connect your GitHub account) and enter the URL: `https://github.com/DiscipulusVitae/agentic-domain-runtime.git`.
    - Choose the **Docker** runtime.
+   - Set the custom **Docker Command**:
+     ```bash
+     /bin/sh -c 'uv run python -m src.sandbox runtime serve --host 0.0.0.0 --port ${PORT:-10000}'
+     ```
    - Select the **Free** instance type.
    - Click **Deploy Web Service**.
 2. **Monitor Build & Deploy Logs:**
@@ -85,10 +93,12 @@ The Render Web Service is temporary and must be cleaned up immediately after ver
 2. Scroll to the bottom and click **Delete Web Service**.
 3. Confirm deletion.
 4. Verify cleanup:
-   ```bash
-   curl -sS -i https://<service-name>.onrender.com/health
-   ```
-   Expected: Connection failure or `HTTP 404 / 502` from Render indicating the service is gone.
+   - Ensure the service is shown as deleted/inactive in the Render Dashboard.
+   - Query the URL:
+     ```bash
+     curl -sS -i https://<service-name>.onrender.com/health
+     ```
+     Expected: The endpoint no longer returns a healthy response (e.g. connection failure, timeout, or DNS resolution failure).
 
 ---
 
