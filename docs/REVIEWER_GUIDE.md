@@ -13,7 +13,7 @@ The codebase operates in distinct modes to allow safe review at different levels
 | **Offline** | **No** | **No** | **None** (In-memory mock only) | Offline logic verification, tests, and CLI mock runs | `pytest`, `--scenario <domain> --full`, `runtime serve` |
 | **Read-Only** | **No** | **No** | **None** | Environment diagnostics and local setup readiness verification | `bootstrap checks --read-only`, `bootstrap doctor` |
 | **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run` |
-| **Future Live** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Production deployments and live cloud management | `bootstrap apply` (without `--dry-run`), live production deploy |
+| **Future Live** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Production deployments and live cloud management (Design Only) | Planned `bootstrap apply` (without `--dry-run`), live production deploy (see [LIVE_APPLY_DESIGN.md](LIVE_APPLY_DESIGN.md)) |
 
 ---
 
@@ -27,9 +27,9 @@ Every step in the default reviewer path comes with the following safety guarante
 
 ---
 
-## 3. Future Live Boundaries (Out of Scope)
+## 3. Future Live Boundaries (Design Only)
 
-The following capabilities are **explicitly out of scope** for this public milestone:
+The following capabilities are **explicitly out of scope** for active code execution in this public milestone, but their target architecture, rollback strategy, and gates are defined in the **[Live Apply Design Spec](LIVE_APPLY_DESIGN.md)**:
 * **Live Supabase Apply**: Execution of `supabase db push` or direct cloud schema mutations.
 * **Render Resource/Env Mutation**: Provisioning web services, setting env groups, or altering deploy parameters in Render.
 * **Telegram Bot API Webhook Mutation**: Outbound `setWebhook` API operations or modifying live bot handlers.

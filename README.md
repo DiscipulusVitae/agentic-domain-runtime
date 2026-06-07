@@ -39,7 +39,7 @@ The codebase supports two distinct verification paths for technical reviewers:
 
 The development of the system's infrastructure configuration and setup wizard is split into phases:
 * **Phase 4: Bootstrap Safe Path (Current Milestone - COMPLETE)**: Focuses on establishing a comprehensive, local-first review environment. All dependency preflight checks, resource topology planning, local Supabase plan configurations, and Telegram webhook readiness validations run entirely in dry-run/offline sandbox mode, requiring zero secrets or cloud resources.
-* **Phase 5: Live Apply (Future Horizon - OUT OF SCOPE)**: Encompasses the activation of live cloud resource mutations (actual Supabase cloud database creations, Render environment variable writes, live Telegram bot webhook updates, and production deployment pipeline activation). This remains in a future horizon and is explicitly out of scope for the current public portfolio milestone.
+* **Phase 5: Live Apply (Future Horizon - DESIGN ONLY)**: Encompasses the activation of live cloud resource mutations (actual Supabase cloud database creations, Render environment variable writes, live Telegram bot webhook updates, and production deployment pipeline activation). This remains in a future horizon and is explicitly out of scope for the current public portfolio execution. For detailed architectural specifications and security boundaries of this future milestone, see the **[Live Apply Design Spec](docs/LIVE_APPLY_DESIGN.md)**.
 
 ## Quickstart
 
@@ -141,6 +141,7 @@ supabase stop
 
 To quickly evaluate the codebase, follow these key architectural maps and evidence documents:
 - **[Reviewer Guide](docs/REVIEWER_GUIDE.md)**: Detailed step-by-step local validation instructions.
+- **[Live Apply Design Spec](docs/LIVE_APPLY_DESIGN.md)**: Architecture blueprint, state transitions, security boundaries, and rollback plans for the future live deployment horizon.
 - **[Local Supabase Package](supabase/README.md)**: Public-safe ready-to-run local Supabase package containing migrations, RLS policies, seeds, and configuration.
 - **[Local Supabase Runbook](docs/RUNBOOK_LOCAL_SUPABASE.md)**: Guide on how to run a local Supabase / PostgreSQL instance to verify database boundaries and RLS policies.
 - **[Resume Claims Evidence](docs/RESUME_CLAIMS.md)**: Direct mapping of resume/portfolio statements to files and tests.
