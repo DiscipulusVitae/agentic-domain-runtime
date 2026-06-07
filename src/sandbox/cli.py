@@ -250,9 +250,15 @@ async def async_main() -> None:
         simulate_parser.add_argument("--fail-after-apply", action="store_true", help="Симулировать ошибку после фазы apply для проверки отката")
         simulate_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
+        cleanup_parser = subparsers.add_parser("cleanup", help="Очистка/откат ресурсов")
+        cleanup_parser.add_argument("--preview", action="store_true", help="Показать превью плана очистки без изменений")
+        cleanup_parser.add_argument("--local", action="store_true", help="Запустить в локальном режиме")
+        cleanup_parser.add_argument("--state-path", default=None, help="Путь к файлу состояния")
+        cleanup_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state, run_bootstrap_simulate
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state, run_bootstrap_simulate, run_cleanup
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -307,6 +313,15 @@ async def async_main() -> None:
             sys.exit(run_bootstrap_simulate(
                 local=args.local,
                 fail_after_apply=args.fail_after_apply,
+                json_mode=args.json
+            ))
+        elif args.bootstrap_cmd == "cleanup":
+            if not args.preview or not args.local:
+                bootstrap_parser.error("Команда cleanup требует обязательного указания флагов --preview и --local.")
+            sys.exit(run_cleanup(
+                preview=args.preview,
+                local=args.local,
+                state_path=args.state_path,
                 json_mode=args.json
             ))
         return

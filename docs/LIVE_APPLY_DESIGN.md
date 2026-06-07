@@ -172,6 +172,11 @@ If a step fails during `Apply` or `Verify`, the system must attempt a controlled
   - During the `Preflight` phase, query the current webhook URL via `getWebhookInfo`.
   - If smoke tests fail, call `setWebhook` with the original URL to restore communication.
 
+### 4. Rollback/Cleanup Preview (Safe Dry-Run)
+Before executing a live rollback or cleanup, operators can preview the actions using a local-only dry-run preview:
+* **Command**: `uv run python -m src.sandbox bootstrap cleanup --preview --local [--state-path <path>] [--json]`
+* **Behavior**: Displays the source of truth (plan or state file), resources and their status (e.g. `planned_not_created`, `created`), and lists the cleanup actions in reverse dependency order (Telegram -> Render -> Supabase -> Local State). It blocks live mutations and requires both flags.
+
 ---
 
 ## 7. Smoke / Verification Contract

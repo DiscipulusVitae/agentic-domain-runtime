@@ -12,7 +12,7 @@ The codebase operates in distinct modes to allow safe review at different levels
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Offline** | **No** | **No** | **None** (In-memory mock only) | Offline logic verification, tests, and CLI mock runs | `pytest`, `--scenario <domain> --full`, `runtime serve` |
 | **Read-Only** | **No** | **No** | **None** | Environment diagnostics, state check, and local setup readiness verification | `bootstrap checks --read-only`, `bootstrap doctor`, `bootstrap state --show` |
-| **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run`, `bootstrap state --init --dry-run`, `bootstrap simulate --local` |
+| **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run`, `bootstrap state --init --dry-run`, `bootstrap simulate --local`, `bootstrap cleanup --preview --local` |
 | **Future Live** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Production deployments and live cloud management (Design Only) | Planned `bootstrap apply` (without `--dry-run`), live production deploy (see [LIVE_APPLY_DESIGN.md](LIVE_APPLY_DESIGN.md)) |
 
 ---
@@ -163,6 +163,24 @@ uv run python -m src.sandbox bootstrap simulate --local --json
 uv run python -m src.sandbox bootstrap simulate --local --fail-after-apply --json
 ```
 *Expected Result:* The CLI performs the plan, preflight, apply, verify, and rollback phases sequentially. In the failure path, verify fails, and the system automatically rolls back all applied synthetic steps, returning the system to a clean state.
+
+### Step 8: Rollback & Cleanup Preview (Dry-Run)
+Verify the safe, local-only preview of the rollback/cleanup plan before future live apply operations:
+```bash
+# 1. Preview rollback/cleanup without a state file (builds preview from deterministic plan)
+uv run python -m src.sandbox bootstrap cleanup --preview --local
+
+# 2. Preview in JSON format
+uv run python -m src.sandbox bootstrap cleanup --preview --local --json
+
+# 3. Preview using an existing state file
+tmp_state="$(mktemp)"
+uv run python -m src.sandbox bootstrap state --init --path "$tmp_state"
+uv run python -m src.sandbox bootstrap cleanup --preview --local --state-path "$tmp_state" --json
+rm -f "$tmp_state"
+```
+*Expected Result:*
+The command outputs a structured preview of the rollback/cleanup plan in the reverse dependency order (Telegram -> Render -> Supabase -> Local State), showing the status of each synthetic resource and whether each cleanup action is `skipped/not-created`, `manual/future-live`, or `automatic/local`. Plain execution without the `--preview --local` flags is blocked.
 
 ---
 
