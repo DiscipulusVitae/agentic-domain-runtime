@@ -2,9 +2,12 @@
 
 This document defines the first minimal live-mutation package for `agentic-domain-runtime`.
 
-Status: **ready for human review, not approved for execution**.
+Status: **technical Render `/health` smoke completed once; clean reviewer/operator smoke still pending**.
 
-No live mutation is performed by this document. A separate explicit GO is required before any cloud or API mutation.
+No further live mutation is authorized by this document. A separate explicit GO is required before any cloud or API mutation.
+
+> [!IMPORTANT]
+> A previous Phase 1 run proved that the public Docker runtime can deploy on Render and serve `/health` over HTTPS. That run is **technical evidence only**, not a clean reviewer onboarding validation, because the Render CLI was executed from an already-authenticated host session. Future live gates must use a clean operator/deployer environment with explicit account verification before mutation.
 
 ---
 
@@ -27,18 +30,51 @@ This package focuses on **Phase 1** as the initial mutation boundary, while defi
 
 ---
 
-## 2. Phase 1: Render Minimal HTTPS Runtime Smoke (CLI-first)
+## 2. Operator / Runtime Boundary
+
+There are two separate containers/environments:
+
+1. **Runtime/app container**
+   - Built from this repository's `Dockerfile`.
+   - Runs the sandbox runtime server and serves `/health`.
+   - Must not contain Render, Supabase, Telegram, Gemini, or GitHub credentials.
+
+2. **Operator/deployer cleanroom**
+   - Runs external CLIs/API calls such as `render`, `supabase`, `curl`, or live smoke commands.
+   - Must start without host `$HOME`, host CLI config, browser credentials, or previous production/development sessions.
+   - Must verify account identity before any live mutation.
+
+Do not put deployment credentials or cloud CLIs into the runtime Docker image. If a future task needs a repeatable operator environment, use a separate operator-cleanroom image or documented shell environment.
+
+### Account Verification Gate
+
+Before any live mutation with Render, Supabase, Telegram, Gemini, or another external service:
+
+1. Start from a clean operator/deployer environment.
+2. Authenticate intentionally for the target reviewer/prod/dev account.
+3. Run the relevant identity check, for example:
+   ```bash
+   render whoami
+   ```
+4. Human operator confirms that the shown account is the intended account for this GO.
+5. Abort on mismatch or uncertainty.
+
+An already-authenticated host CLI session is not consent to use that account.
+
+---
+
+## 3. Phase 1: Render Minimal HTTPS Runtime Smoke (CLI-first)
 
 This phase validates that `agentic-domain-runtime` can be successfully built and deployed as a Docker container to Render, serving public HTTPS requests on the `/health` endpoint.
 
-### 2.1. Render Assumptions & Constraints
+### 3.1. Render Assumptions & Constraints
 - **Billing:** Render Free Tier must be used. No credit card should be requested or linked for this smoke. If a billing prompt or card requirement appears, abort immediately.
 - **Service Type:** Web Service.
 - **Deployment Source:** Public Git repository URL (`https://github.com/DiscipulusVitae/agentic-domain-runtime.git`). Do not use the GitHub provider connection to avoid auto-deploy/PR preview setups.
 - **Docker Command:** The default Dockerfile CMD is configured to serve the runtime on `${PORT:-10000}`, so no start command override is required in the CLI command.
 - **Environment Variables:** None are required for `/health` smoke (disables DB and API dependencies).
 
-### 2.2. Pre-mutation Local Validation
+### 3.2. Pre-mutation Local Validation
 Before requesting a live GO, the reviewer/operator must verify the local container builds and runs successfully:
 
 ```bash
@@ -52,15 +88,15 @@ curl -sS -i http://127.0.0.1:8000/health
 ```
 Expected: `HTTP 200` with JSON body.
 
-### 2.3. Explicit GO Boundary for Phase 1
+### 3.3. Explicit GO Boundary for Phase 1
 No live deployment or Render service creation should occur without an explicit human review and authorization message:
 ```text
 GO Phase 1: Render minimal HTTPS runtime smoke
 ```
 
-### 2.4. Deployment & Verification Steps (Live Mutation)
-1. **Authenticate in Render CLI:**
-   Run the interactive login command (opens browser for authentication):
+### 3.4. Deployment & Verification Steps (Live Mutation)
+1. **Authenticate in a clean operator/deployer environment:**
+   Run the interactive login command for the intended reviewer/prod/dev account:
    ```bash
    render login
    ```
@@ -68,6 +104,7 @@ GO Phase 1: Render minimal HTTPS runtime smoke
    ```bash
    render whoami
    ```
+   Abort unless the human operator explicitly confirms the account is intended for this GO.
 2. **Create Render Service via CLI:**
    Run the creation command targeting the public Git URL, setting auto-deploy to false (no start command override is needed since it is defined in the Dockerfile):
    ```bash
@@ -101,7 +138,7 @@ GO Phase 1: Render minimal HTTPS runtime smoke
      ```
    - Expected: `HTTP 200` and JSON response.
 
-### 2.5. Phase 1 Cleanup Plan
+### 3.5. Phase 1 Cleanup Plan
 The Render Web Service is temporary and must be cleaned up immediately after verification. Since the Render CLI does not currently support service deletion, this step is performed via the dashboard:
 1. Log into the Render Dashboard.
 2. Navigate to the **adr-runtime-smoke** service.
@@ -117,21 +154,25 @@ The Render Web Service is temporary and must be cleaned up immediately after ver
 
 ---
 
-## 3. Phase 2: Telegram Webhook Smoke against Render URL
+---
+
+## 4. Phase 2: Telegram Webhook Smoke against Render URL
 
 This phase is executed **only** after Phase 1 is completed, verified, and cleaned up, and requires a separate explicit GO.
 
-### 3.1. Telegram Assumptions & Prep
+Phase 2 must not proceed from a reused host CLI session. It requires the same operator/deployer account verification gate as Phase 1.
+
+### 4.1. Telegram Assumptions & Prep
 - A disposable Telegram bot created via `@BotFather`.
 - Bot token kept strictly in the operator's shell memory/password manager.
 - No tokens stored in `.env`, state files, git, or reports.
 
-### 3.2. Explicit GO Boundary for Phase 2
+### 4.2. Explicit GO Boundary for Phase 2
 ```text
 GO Phase 2: Telegram webhook smoke against Render URL
 ```
 
-### 3.3. Phase 2 Execution Steps
+### 4.3. Phase 2 Execution Steps
 1. Re-deploy the Render Web Service via Render CLI (similar to Phase 1).
 2. Export the disposable bot token locally:
    ```bash
@@ -160,7 +201,7 @@ GO Phase 2: Telegram webhook smoke against Render URL
    render logs <service-id-or-name>
    ```
 
-### 3.4. Phase 2 Cleanup Plan
+### 4.4. Phase 2 Cleanup Plan
 1. Delete the webhook:
    ```bash
    curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook"
@@ -175,11 +216,15 @@ GO Phase 2: Telegram webhook smoke against Render URL
 
 ---
 
-## 4. Abort & Rollback Conditions
+---
+
+## 5. Abort & Rollback Conditions
 
 ### Abort Before Mutation if:
 - Any billing or credit card requirement is prompted on Render or via CLI.
 - CLI authentication requests elevated or unexpected OAuth scopes.
+- `render whoami` or another identity check shows an unexpected account.
+- The operator environment reuses host credentials when the GO package expected a clean reviewer account.
 - Local container preflight `/health` check fails.
 
 ### Rollback on Failure:
@@ -188,7 +233,9 @@ GO Phase 2: Telegram webhook smoke against Render URL
 
 ---
 
-## 5. Allowed Evidence
+---
+
+## 6. Allowed Evidence
 To keep credentials and infrastructure details private:
 - Allowed: Statement that `/health` returned `HTTP 200`.
 - Allowed: Screenshot of the `/health` JSON response (hiding the Render domain name if it contains sensitive identifiers).
