@@ -1353,3 +1353,36 @@ async def test_cli_bootstrap_operator_requires_flags(capsys):
 
     captured = capsys.readouterr()
     assert "Команда operator требует указания флагов --render и --dry-run" in captured.err
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_critical_fail)
+async def test_cli_bootstrap_checks_critical_missing(mock_run, capsys):
+    """Проверяет падение checks при отсутствии критического uv CLI (exit code 1)."""
+    with patch("sys.argv", ["cli.py", "bootstrap", "checks", "--read-only"]):
+        with pytest.raises(SystemExit) as exc_info:
+            await async_main()
+        assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "=== ADR Bootstrap Checks (READ-ONLY) ===" in captured.out
+    assert "Критические CLI инструменты не найдены" in captured.out
+
+
+@pytest.mark.asyncio
+@patch("subprocess.run", side_effect=mock_subprocess_run_ok)
+async def test_cli_bootstrap_doctor_python_fail(mock_run, capsys):
+    """Проверяет падение doctor при версии Python < 3.13 (exit code 1)."""
+    from collections import namedtuple
+    VersionInfo = namedtuple("VersionInfo", ["major", "minor", "micro"])
+    mock_version = VersionInfo(3, 12, 5)
+    with patch("src.sandbox.bootstrap.sys.version_info", mock_version):
+        with patch("sys.argv", ["cli.py", "bootstrap", "doctor"]):
+            with pytest.raises(SystemExit) as exc_info:
+                await async_main()
+            assert exc_info.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "=== ADR Bootstrap Doctor ===" in captured.out
+    assert "[FAIL]   python" in captured.out
+    assert "Python версия 3.12.5 не удовлетворяет требованиям" in captured.out
