@@ -42,6 +42,7 @@ The development of the system's infrastructure configuration and setup wizard is
 * **Phase 4: Bootstrap Safe Path (Current Milestone - COMPLETE)**: Focuses on establishing a comprehensive, local-first review environment. All dependency preflight checks, resource topology planning, local Supabase plan configurations, and Telegram webhook readiness validations run entirely in dry-run/offline sandbox mode, requiring zero secrets or cloud resources.
 * **Phase 5: Live Apply (Future Horizon - DESIGN ONLY)**: Encompasses the activation of live cloud resource mutations (actual Supabase cloud database creations, Render environment variable writes, live Telegram bot webhook updates, and production deployment pipeline activation). This remains in a future horizon and is explicitly out of scope for the current public portfolio execution. For detailed architectural specifications and security boundaries of this future milestone, see the **[Live Apply Design Spec](docs/LIVE_APPLY_DESIGN.md)**.
 * **First Live GO Package (Technical Smoke + Next Gate)**: The first Render `/health` technical smoke succeeded once, but clean reviewer/operator validation remains pending because future live gates require isolated operator credentials and explicit account verification. See **[First Live GO Package](docs/FIRST_LIVE_GO_PACKAGE.md)**.
+* **Operator Cleanroom (Prepared, Dry-Run Only)**: Defines the clean deployment shell and account-verification gate required before repeating the Render `/health` smoke from a reviewer account. See **[Operator Cleanroom](docs/OPERATOR_CLEANROOM.md)**.
 
 ## Quickstart
 
@@ -84,6 +85,9 @@ Provides a fully containerized, reproducible, and safe environment for verifying
 
    # Preview cleanup/rollback steps
    docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap cleanup --preview --local --json
+
+   # Preview operator/deployer cleanroom rules before any live Render mutation
+   docker run --rm agentic-domain-runtime-reviewer uv run python -m src.sandbox bootstrap operator --render --dry-run
    ```
 
 5. **Interact with the Container CLI (Optional)**

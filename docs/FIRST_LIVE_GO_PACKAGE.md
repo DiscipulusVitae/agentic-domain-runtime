@@ -44,7 +44,13 @@ There are two separate containers/environments:
    - Must start without host `$HOME`, host CLI config, browser credentials, or previous production/development sessions.
    - Must verify account identity before any live mutation.
 
-Do not put deployment credentials or cloud CLIs into the runtime Docker image. If a future task needs a repeatable operator environment, use a separate operator-cleanroom image or documented shell environment.
+Do not put deployment credentials or cloud CLIs into the runtime Docker image. If a future task needs a repeatable operator environment, use a separate operator-cleanroom image or documented shell environment. See [Operator Cleanroom](OPERATOR_CLEANROOM.md).
+
+The dry-run command for this boundary is:
+
+```bash
+uv run python -m src.sandbox bootstrap operator --render --dry-run
+```
 
 ### Account Verification Gate
 

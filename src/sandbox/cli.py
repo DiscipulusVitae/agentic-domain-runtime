@@ -227,6 +227,11 @@ async def async_main() -> None:
         checks_parser.add_argument("--read-only", action="store_true", help="Обязательный флаг для подтверждения read-only режима")
         checks_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
+        operator_parser = subparsers.add_parser("operator", help="Показать operator/deployer cleanroom plan")
+        operator_parser.add_argument("--render", action="store_true", help="Подготовить cleanroom path для Render CLI")
+        operator_parser.add_argument("--dry-run", action="store_true", help="Показать план без login/API/mutation")
+        operator_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
+
         supabase_parser = subparsers.add_parser("supabase", help="Интегрировать local Supabase plan")
         supabase_parser.add_argument("--local", action="store_true", help="Запустить в локальном режиме")
         supabase_parser.add_argument("--dry-run", action="store_true", help="Показать план без реальных изменений")
@@ -258,7 +263,7 @@ async def async_main() -> None:
 
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state, run_bootstrap_simulate, run_cleanup
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_operator_cleanroom, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state, run_bootstrap_simulate, run_cleanup
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -286,6 +291,10 @@ async def async_main() -> None:
             if not args.read_only:
                 bootstrap_parser.error("Команда checks требует указания флага --read-only.")
             sys.exit(run_checks(json_mode=args.json))
+        elif args.bootstrap_cmd == "operator":
+            if not args.render or not args.dry_run:
+                bootstrap_parser.error("Команда operator требует указания флагов --render и --dry-run.")
+            sys.exit(run_operator_cleanroom(render=args.render, dry_run=args.dry_run, json_mode=args.json))
         elif args.bootstrap_cmd == "supabase":
             if not args.local or not args.dry_run:
                 bootstrap_parser.error("Команда supabase требует указания флагов --local и --dry-run в текущей версии.")
