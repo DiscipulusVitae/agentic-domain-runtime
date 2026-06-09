@@ -42,3 +42,4 @@ supabase/.temp/
 # Local Bootstrap State
 .bootstrap-state.json
 .bootstrap-state-sim.json
+.opencode
