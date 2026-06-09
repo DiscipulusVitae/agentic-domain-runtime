@@ -2,9 +2,9 @@
 
 This document defines the operator/deployer environment required before live cloud or API mutations.
 
-Status: **prepared, dry-run only**.
+Status: **required for live gates**.
 
-No login, API call, deploy, webhook update, or cloud mutation is authorized by this document.
+This document defines the environment boundary. It does not authorize a live mutation by itself; each mutation still requires a task-specific GO package.
 
 ---
 
@@ -34,6 +34,10 @@ Before any live mutation:
 4. Run identity check:
    ```bash
    render whoami
+   ```
+   or:
+   ```bash
+   supabase orgs list --output json
    ```
 5. Human operator confirms that the account is the intended reviewer/prod/dev account.
 6. Abort on mismatch, uncertainty, billing/card prompts, or unexpected OAuth scopes.
@@ -66,25 +70,46 @@ The exact operator image can evolve, but the safety properties must remain:
 
 ```text
 operator cleanroom
-  has: render CLI, curl, git/public repo URL if needed
+  has: render CLI and/or supabase CLI, curl, git/public repo URL if needed
   does not have: host HOME, host CLI configs, tokens, SSH keys
-  first live step: render login
-  first account check: render whoami
+  first live step: render login or supabase login
+  first account check: render whoami or supabase orgs list
   first mutation: only after human account confirmation and explicit GO
 ```
 
-Do not add Render CLI or credentials to the runtime Dockerfile.
+Do not add Render/Supabase deployment CLIs or credentials to the runtime Dockerfile.
+
+---
+
+## Browser Auth UX
+
+Render and Supabase CLI auth may print a browser URL when running inside Docker. This is expected.
+
+Safe flow:
+
+```text
+container prints auth URL -> operator opens it manually in reviewer browser profile -> CLI receives or asks for verification code -> identity check -> human confirms account
+```
+
+Do not mount host browser profile, DBus, or host `$HOME` into the cleanroom to make browser opening automatic.
+
+---
+
+## Region Defaults
+
+Use Frankfurt where supported:
+
+- Render: Frankfurt / EU Central.
+- Supabase: `eu-central-1`.
 
 ---
 
 ## Next Live Gate
 
-The next acceptable live gate is:
+The next acceptable combined infrastructure gate is:
 
 ```text
-GO Phase 1: Render minimal HTTPS runtime smoke from clean reviewer account
+Supabase + Render wiring after DB-backed readiness exists
 ```
 
-That GO must happen only after the operator cleanroom is started, the intended account is confirmed, and the local runtime preflight is green.
-
-Telegram webhook smoke remains a later separate GO.
+Before that, use separate proof gates for Render, Telegram, and Supabase.

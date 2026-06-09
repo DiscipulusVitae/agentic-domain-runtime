@@ -40,9 +40,8 @@ The codebase supports three verification paths for technical reviewers:
 
 The development of the system's infrastructure configuration and setup wizard is split into phases:
 * **Phase 4: Bootstrap Safe Path (Current Milestone - COMPLETE)**: Focuses on establishing a comprehensive, local-first review environment. All dependency preflight checks, resource topology planning, local Supabase plan configurations, and Telegram webhook readiness validations run entirely in dry-run/offline sandbox mode, requiring zero secrets or cloud resources.
-* **Phase 5: Live Apply (Future Horizon - DESIGN ONLY)**: Encompasses the activation of live cloud resource mutations (actual Supabase cloud database creations, Render environment variable writes, live Telegram bot webhook updates, and production deployment pipeline activation). This remains in a future horizon and is explicitly out of scope for the current public portfolio execution. For detailed architectural specifications and security boundaries of this future milestone, see the **[Live Apply Design Spec](docs/LIVE_APPLY_DESIGN.md)**.
-* **First Live GO Package (Technical Smoke + Next Gate)**: The first Render `/health` technical smoke succeeded once, but clean reviewer/operator validation remains pending because future live gates require isolated operator credentials and explicit account verification. See **[First Live GO Package](docs/FIRST_LIVE_GO_PACKAGE.md)**.
-* **Operator Cleanroom (Prepared, Dry-Run Only)**: Defines the clean deployment shell and account-verification gate required before repeating the Render `/health` smoke from a reviewer account. See **[Operator Cleanroom](docs/OPERATOR_CLEANROOM.md)**.
+* **Phase 5: Live Apply (Incremental Proof Gates)**: Live cloud mutations are not part of the default reviewer path, but selected proof gates have been exercised with disposable resources and clean operator boundaries. Render `/health`, Telegram webhook delivery, Supabase schema smoke, and Supabase organization onboarding have been validated separately. The next meaningful gate is Supabase + Render wiring after adding a DB-backed readiness seam. See **[Live Apply Design Spec](docs/LIVE_APPLY_DESIGN.md)** and **[Supabase + Render Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
+* **Operator Cleanroom (Required for Live Gates)**: Defines the clean deployment shell and account-verification gate required before any live cloud/API mutation. See **[Operator Cleanroom](docs/OPERATOR_CLEANROOM.md)**.
 
 ## Quickstart
 
@@ -203,6 +202,7 @@ To quickly evaluate the codebase, follow these key architectural maps and eviden
 - **[Reviewer Guide](docs/REVIEWER_GUIDE.md)**: Detailed step-by-step local validation instructions.
 - **[Live Apply Design Spec](docs/LIVE_APPLY_DESIGN.md)**: Architecture blueprint, state transitions, security boundaries, and rollback plans for the future live deployment horizon.
 - **[First Live GO Package](docs/FIRST_LIVE_GO_PACKAGE.md)**: Minimal Telegram-only live mutation package prepared for explicit human GO review.
+- **[Supabase + Render Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**: Current reviewer/deployer flow for Supabase schema smoke and the next DB-backed Render readiness prerequisite.
 - **[Local Supabase Package](supabase/README.md)**: Public-safe ready-to-run local Supabase package containing migrations, RLS policies, seeds, and configuration.
 - **[Local Supabase Runbook](docs/RUNBOOK_LOCAL_SUPABASE.md)**: Guide on how to run a local Supabase / PostgreSQL instance to verify database boundaries and RLS policies.
 - **[Resume Claims Evidence](docs/RESUME_CLAIMS.md)**: Direct mapping of resume/portfolio statements to files and tests.

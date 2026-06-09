@@ -56,7 +56,7 @@ graph TD
   - Run read-only diagnostic requests to verify authorization.
   - Validate Render account limits and service name availability.
   - Test Telegram bot token validity (via `getMe`).
-  - Verify that the target Supabase project exists and is accessible.
+  - Verify that the target Supabase organization/project exists and is accessible.
 * **Outcome**: Verification that all external APIs are reachable and credentials are correct before executing any mutations.
 * **CLI Contract (Safe Preflight)**:
   - `uv run python -m src.sandbox bootstrap apply --preflight --read-only`: Performs offline and read-only diagnostics of environment readiness.
@@ -106,6 +106,17 @@ Managing live secrets requires strict hygiene to prevent credentials from leakin
 * `SUPABASE_ACCESS_TOKEN` / `SUPABASE_DB_PASSWORD`: Required to authenticate CLI schema updates.
 * `RENDER_API_KEY`: Required to orchestrate hosting resources.
 * `TELEGRAM_BOT_TOKEN`: Required to map webhook destinations.
+
+### Supabase Reviewer Onboarding Notes
+
+For reviewer/test setups:
+
+- Supabase CLI login can use browser auth from a clean Docker operator environment.
+- If `supabase orgs list --output json` returns an existing organization, use it only after human confirmation.
+- If it returns `[]`, the deployer can create a neutral organization with `supabase orgs create "ADR Reviewer"`.
+- Project creation should target Frankfurt / `eu-central-1`.
+- Do not pass `--size nano` for free-tier creation; let Supabase choose the free-tier compute size.
+- Remote `supabase db push` does not apply `seed.sql`; apply public-safe `seed.sql` explicitly before running `smoke.sql`.
 
 ### Storage & Input Protocols
 1. **No Disk Persistence for Secrets**: Secrets must never be written to local state files (such as `.bootstrap-state.json`) or temporary files.
@@ -186,6 +197,7 @@ After resources are applied, the `Verify` phase validates the setup with a deter
 1. **Local and Cloud Health Probe**:
    - Query `/health` on the Render web service URL.
    - Expect: `HTTP 200 OK` with JSON payload list of active agents (e.g. `{"status": "ok", "agents": ["butler", "kitchen", "books", "health"]}`).
+   - For Supabase + Render wiring, `/health` must also report whether persistence is `memory` or `supabase`, whether DB env is configured, and whether a safe DB readiness check passed.
 2. **Synthetic Message Webhook Test**:
    - Send a synthetic POST request resembling a Telegram update object to the Render webhook endpoint.
    - Expect: `HTTP 200 OK` with verified domain classification results.
