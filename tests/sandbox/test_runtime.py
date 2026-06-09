@@ -47,6 +47,153 @@ def test_health_endpoint(server_url):
         assert isinstance(data.get("agent_ids"), list)
         assert "core.butler" in data.get("agent_ids")
         assert "kitchen.recorder" in data.get("agent_ids")
+        # Assert default memory persistence fields
+        assert data.get("persistence") == "memory"
+        assert data.get("database") == {
+            "configured": False,
+            "reachable": False,
+            "schema_smoke": "skipped"
+        }
+
+
+def test_health_endpoint_supabase_missing_env(server_url, monkeypatch):
+    """Test GET /health with Supabase persistence and missing required env variables."""
+    monkeypatch.setenv("ADR_PERSISTENCE", "supabase")
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_API_KEY_PUBLISHABLE", raising=False)
+
+    url = f"{server_url}/health"
+    req = urllib.request.Request(url, method="GET")
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req, timeout=5)
+
+    assert exc_info.value.code == 503
+    body = exc_info.value.read().decode("utf-8")
+    data = json.loads(body)
+    assert data.get("status") == "error"
+    assert data.get("persistence") == "supabase"
+    assert data.get("database") == {
+        "configured": False,
+        "reachable": False,
+        "schema_smoke": "failed"
+    }
+
+
+def test_health_endpoint_supabase_success(server_url, monkeypatch):
+    """Test GET /health in Supabase mode with mocked successful PostgREST query."""
+    monkeypatch.setenv("ADR_PERSISTENCE", "supabase")
+    monkeypatch.setenv("SUPABASE_URL", "http://mock-supabase.example.com")
+    monkeypatch.setenv("SUPABASE_API_KEY_PUBLISHABLE", "mock-anon-key")
+
+    from unittest.mock import patch, MagicMock
+    original_urlopen = urllib.request.urlopen
+
+    def side_effect(req, *args, **kwargs):
+        url_str = req.full_url if isinstance(req, urllib.request.Request) else req
+        if "mock-supabase.example.com" in url_str:
+            mock_response = MagicMock()
+            mock_response.getcode.return_value = 200
+            mock_response.read.return_value = b'[]'
+            mock_response.__enter__.return_value = mock_response
+            return mock_response
+        return original_urlopen(req, *args, **kwargs)
+
+    with patch("urllib.request.urlopen", side_effect=side_effect) as mock_urlopen:
+        url = f"{server_url}/health"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            assert response.getcode() == 200
+            body = response.read().decode("utf-8")
+            data = json.loads(body)
+            assert data.get("status") == "ok"
+            assert data.get("persistence") == "supabase"
+            assert data.get("database") == {
+                "configured": True,
+                "reachable": True,
+                "schema_smoke": "ok"
+            }
+
+        # Verify the mock was called with the right headers
+        called_args = [call[0][0] for call in mock_urlopen.call_args_list]
+        supabase_calls = [r for r in called_args if isinstance(r, urllib.request.Request) and "mock-supabase.example.com" in r.full_url]
+        assert len(supabase_calls) == 1
+        req = supabase_calls[0]
+        assert req.get_header("Apikey") == "mock-anon-key"
+        assert req.get_header("Authorization") == "Bearer mock-anon-key"
+        assert req.get_header("Accept-profile") == "core"
+
+
+def test_health_endpoint_supabase_network_failure(server_url, monkeypatch):
+    """Test GET /health in Supabase mode with mocked network/connection failure."""
+    monkeypatch.setenv("ADR_PERSISTENCE", "supabase")
+    monkeypatch.setenv("SUPABASE_URL", "http://mock-supabase.example.com")
+    monkeypatch.setenv("SUPABASE_API_KEY_PUBLISHABLE", "mock-anon-key")
+
+    from unittest.mock import patch
+    original_urlopen = urllib.request.urlopen
+
+    def side_effect(req, *args, **kwargs):
+        url_str = req.full_url if isinstance(req, urllib.request.Request) else req
+        if "mock-supabase.example.com" in url_str:
+            raise urllib.error.URLError("Connection refused")
+        return original_urlopen(req, *args, **kwargs)
+
+    with patch("urllib.request.urlopen", side_effect=side_effect):
+        url = f"{server_url}/health"
+        req = urllib.request.Request(url, method="GET")
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req, timeout=5)
+
+        assert exc_info.value.code == 503
+        body = exc_info.value.read().decode("utf-8")
+        data = json.loads(body)
+        assert data.get("status") == "error"
+        assert data.get("persistence") == "supabase"
+        assert data.get("database") == {
+            "configured": True,
+            "reachable": False,
+            "schema_smoke": "failed"
+        }
+
+
+def test_health_endpoint_supabase_api_http_error(server_url, monkeypatch):
+    """Test GET /health in Supabase mode with mocked API/HTTP error response."""
+    monkeypatch.setenv("ADR_PERSISTENCE", "supabase")
+    monkeypatch.setenv("SUPABASE_URL", "http://mock-supabase.example.com")
+    monkeypatch.setenv("SUPABASE_API_KEY_PUBLISHABLE", "mock-anon-key")
+
+    from unittest.mock import patch, MagicMock
+    original_urlopen = urllib.request.urlopen
+
+    def side_effect(req, *args, **kwargs):
+        url_str = req.full_url if isinstance(req, urllib.request.Request) else req
+        if "mock-supabase.example.com" in url_str:
+            fp = MagicMock()
+            fp.read.return_value = b"Not Found"
+            raise urllib.error.HTTPError(
+                url=url_str,
+                code=404,
+                msg="Not Found",
+                hdrs={},
+                fp=fp
+            )
+        return original_urlopen(req, *args, **kwargs)
+
+    with patch("urllib.request.urlopen", side_effect=side_effect):
+        url = f"{server_url}/health"
+        req = urllib.request.Request(url, method="GET")
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req, timeout=5)
+
+        assert exc_info.value.code == 503
+        body = exc_info.value.read().decode("utf-8")
+        data = json.loads(body)
+        assert data.get("status") == "error"
+        assert data.get("persistence") == "supabase"
+        assert data.get("database") == {
+            "configured": True,
+            "reachable": True,
+            "schema_smoke": "failed"
+        }
 
 
 def test_webhook_telegram_success(server_url):

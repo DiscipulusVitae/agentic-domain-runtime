@@ -21,17 +21,90 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self.send_response(200)
+            import os
+            persistence = os.environ.get("ADR_PERSISTENCE", "memory").lower()
+
+            configured = False
+            reachable = False
+            schema_smoke = "skipped"
+            status = "ok"
+            http_status = 200
+
+            if persistence == "supabase":
+                url = os.environ.get("SUPABASE_URL")
+                anon_key = os.environ.get("SUPABASE_API_KEY_PUBLISHABLE")
+
+                if not url or not anon_key:
+                    configured = False
+                    reachable = False
+                    schema_smoke = "failed"
+                    status = "error"
+                    http_status = 503
+                else:
+                    configured = True
+                    try:
+                        base_url = url.rstrip("/")
+                        if "/rest/v1" not in base_url:
+                            target_url = f"{base_url}/rest/v1/persons"
+                        else:
+                            target_url = f"{base_url}/persons"
+
+                        req = urllib.request.Request(
+                            target_url,
+                            headers={
+                                "apikey": anon_key,
+                                "Authorization": f"Bearer {anon_key}",
+                                "Accept-Profile": "core"
+                            },
+                            method="GET"
+                        )
+                        with urllib.request.urlopen(req, timeout=3.0) as resp:
+                            if resp.getcode() == 200:
+                                reachable = True
+                                schema_smoke = "ok"
+                            else:
+                                reachable = True
+                                schema_smoke = "failed"
+                                status = "error"
+                                http_status = 503
+                    except urllib.error.HTTPError as e:
+                        reachable = True
+                        schema_smoke = "failed"
+                        status = "error"
+                        http_status = 503
+                        logger.warning(f"Supabase REST health check failed with HTTP status code: {e.code}")
+                    except Exception as e:
+                        reachable = False
+                        schema_smoke = "failed"
+                        status = "error"
+                        http_status = 503
+                        logger.warning("Supabase REST health check connection failed")
+            else:
+                persistence = "memory"
+                configured = False
+                reachable = False
+                schema_smoke = "skipped"
+                status = "ok"
+                http_status = 200
+
+            self.send_response(http_status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
+
             cfg = SandboxConfig()
             response = {
-                "status": "ok",
+                "status": status,
                 "runtime": "python-stdlib",
                 "mode": "sandbox",
                 "llm_provider": cfg.llm_provider,
                 "enabled_domains": cfg.enabled_domains,
-                "agent_ids": list(AGENT_REGISTRY.keys())
+                "agent_ids": list(AGENT_REGISTRY.keys()),
+                "persistence": persistence,
+                "database": {
+                    "configured": configured,
+                    "reachable": reachable,
+                    "schema_smoke": schema_smoke
+                }
             }
             self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
         elif self.path == "/debug/storage":

@@ -2,7 +2,7 @@
 
 This document captures the current reviewer/deployer path for wiring a public-safe Supabase project to a temporary Render runtime.
 
-Status: **proof package prepared; combined DB-backed Render readiness is not implemented yet**.
+Status: **proof package prepared; combined DB-backed Render readiness seam is implemented**.
 
 The repository has already proven these live boundaries separately:
 
@@ -11,7 +11,7 @@ The repository has already proven these live boundaries separately:
 - A fresh reviewer Supabase project in Frankfurt can receive the public-safe schema, seed data, and pass `supabase/smoke.sql`.
 - Supabase organization onboarding can be handled by CLI after browser login.
 
-The next meaningful implementation prerequisite is a runtime readiness seam that actually validates Supabase configuration. Until that exists, setting Supabase env vars on Render and checking `/health` would only prove that the service boots, not that it uses the database.
+The runtime readiness seam is implemented to validate Supabase configuration and connectivity. Setting Supabase env vars on Render and checking `/health` will verify database wiring.
 
 ---
 
@@ -122,31 +122,62 @@ Allowed evidence:
 
 ---
 
-## Current Wiring Gap
+## DB-Backed Readiness Seam
 
-The current public runtime `/health` response reports sandbox process health and agent registry status. It does not read Supabase env vars and does not check database connectivity.
+The public runtime `/health` response supports validating Supabase configuration and database connectivity.
 
-Therefore, the next implementation slice should add a public-safe DB readiness seam before attempting a combined Supabase + Render live proof.
+Expected Contract:
 
-Minimum useful contract:
-
-```text
-GET /health
-  status: ok
-  mode: sandbox
-  persistence: memory | supabase
-  database:
-    configured: true | false
-    reachable: true | false
-    schema_smoke: ok | skipped | failed
+```json
+{
+  "status": "ok",
+  "mode": "sandbox",
+  "persistence": "memory|supabase",
+  "database": {
+    "configured": true,
+    "reachable": true,
+    "schema_smoke": "ok|skipped|failed"
+  }
+}
 ```
 
-The readiness check must:
+### Configuration & Environment Variables
 
-- be safe with synthetic reviewer data only;
-- avoid printing secrets;
-- fail closed if required Supabase env vars are missing in `supabase` mode;
-- remain optional so the offline reviewer path continues to work without secrets.
+The readiness seam reads the following environment variables:
+- `ADR_PERSISTENCE`: Decides the persistence layer. Default is `memory`. Set to `supabase` to enable DB-backed readiness.
+- `SUPABASE_URL`: The URL of the Supabase API Gateway.
+- `SUPABASE_API_KEY_PUBLISHABLE`: The public/publishable Supabase API key used for anonymous read-only readiness checks.
+
+### Behavior & Fail-Closed Strategy
+
+- **`memory` mode**: Checks are bypassed. Returns:
+  - `http_status`: 200 OK
+  - `persistence`: `"memory"`
+  - `database.configured`: `false`
+  - `database.reachable`: `false`
+  - `database.schema_smoke`: `"skipped"`
+- **`supabase` mode (Missing Environment Variables)**: If `ADR_PERSISTENCE=supabase` but either `SUPABASE_URL` or `SUPABASE_API_KEY_PUBLISHABLE` is missing or empty, the check fails closed:
+  - `http_status`: 503 Service Unavailable
+  - `status`: `"error"`
+  - `database.configured`: `false`
+  - `database.reachable`: `false`
+  - `database.schema_smoke`: `"failed"`
+- **`supabase` mode (Unreachable Database)**: If environment variables are present but the database connection fails:
+  - `http_status`: 503 Service Unavailable
+  - `status`: `"error"`
+  - `database.configured`: `true`
+  - `database.reachable`: `false`
+  - `database.schema_smoke`: `"failed"`
+- **`supabase` mode (Successful Check)**: Performs a safe read-only GET request to the `/rest/v1/persons` endpoint with a 3.0-second timeout. If it returns 200 OK:
+  - `http_status`: 200 OK
+  - `status`: `"ok"`
+  - `database.configured`: `true`
+  - `database.reachable`: `true`
+  - `database.schema_smoke`: `"ok"`
+
+> [!IMPORTANT]
+> **Live Combined Proof Gate**
+> Although the readiness seam is fully implemented, executing a live combined proof (deploying to live Render and wiring it to a live Supabase project) is still strictly gated and requires a separate human GO authorization. Do not run any live mutations on live cloud infrastructure without explicit approval.
 
 ---
 
