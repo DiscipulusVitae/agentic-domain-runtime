@@ -73,7 +73,7 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
                         status = "error"
                         http_status = 503
                         logger.warning(f"Supabase REST health check failed with HTTP status code: {e.code}")
-                    except Exception as e:
+                    except urllib.error.URLError:
                         reachable = False
                         schema_smoke = "failed"
                         status = "error"
