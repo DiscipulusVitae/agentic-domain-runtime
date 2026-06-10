@@ -83,7 +83,8 @@ def run_render_phase(plan, state: dict) -> None:
 
         step_info("Создание сервиса (занимает 30-60 секунд)...")
         create_args = [
-            "render", "services", "create", service_name,
+            "render", "services", "create",
+            "--name", service_name,
             "--type", "web_service",
             "--runtime", "docker",
             "--plan", "free",
