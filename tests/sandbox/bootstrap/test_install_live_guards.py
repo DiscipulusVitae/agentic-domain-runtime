@@ -255,10 +255,10 @@ class TestStateReuseGuard:
 
 
 class TestIdentityConfirmation:
-    """Account/workspace identity confirmation: reviewer/disposable checks."""
+    """Account/workspace identity confirmation: fail-closed gate."""
 
-    def test_supabase_org_asks_reviewer_confirmation(self, monkeypatch):
-        """После определения org запрашивается подтверждение reviewer."""
+    def test_supabase_org_confirmed_proceeds(self, monkeypatch):
+        """reviewer подтверждён → фаза продолжается."""
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
             lambda *a: True,
@@ -283,7 +283,6 @@ class TestIdentityConfirmation:
             "src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
             track_yes_no,
         )
-
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_supabase.step_info",
             lambda msg: None,
@@ -304,17 +303,65 @@ class TestIdentityConfirmation:
         reviewer_prompts = [p for p in yes_no_calls if "reviewer" in p.lower()]
         assert len(reviewer_prompts) >= 1
 
-    def test_render_workspace_asks_reviewer_confirmation(self, monkeypatch):
-        """После определения workspace запрашивается подтверждение reviewer."""
+    def test_supabase_org_denied_aborts(self, monkeypatch):
+        """reviewer не подтверждён → sys.exit(1), мутации не выполняются."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
+            lambda *a: True,
+        )
+
+        create_calls = []
+        def fake_run_cmd(args, **kw):
+            if "orgs" in args and "list" in args:
+                return {"ok": True, "stdout": json.dumps([{"id": "org-1", "name": "MyOrg"}])}
+            if "projects" in args and "create" in args:
+                create_calls.append(args)
+                return {"ok": True, "stdout": json.dumps({"id": "ref-new", "name": "test"})}
+            return {"ok": True, "stdout": "{}", "combined": ""}
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
+            fake_run_cmd,
+        )
+
+        def track_yes_no(prompt, *a, **kw):
+            if "reviewer" in prompt.lower():
+                return False  # denial
+            return True
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
+            track_yes_no,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.step_info",
+            lambda msg: None,
+        )
+
+        state = {}
+        plan = MagicMock()
+        plan.supabase_organization = "MyOrg"
+        plan.supabase_project_name = "test-proj"
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("src.sandbox.bootstrap.commands.install_live_supabase.save_state"):
+                with patch("secrets.token_urlsafe", return_value="pw"):
+                    run_supabase_phase(plan, state)
+
+        assert exc_info.value.code == 1
+        assert len(create_calls) == 0  # не дошло до создания проекта
+
+    def test_render_workspace_confirmed_proceeds(self, monkeypatch):
+        """reviewer workspace подтверждён → фаза продолжается."""
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_render.check_cli_logged_in",
             lambda *a: True,
         )
 
+        create_calls = []
         def fake_run_cmd(args, **kw):
             if "workspace" in args and "current" in args:
                 return {"ok": True, "stdout": json.dumps({"id": "ws-1", "name": "MyWorkspace"})}
             if "services" in args and "create" in args:
+                create_calls.append(args)
                 return {"ok": True, "stdout": json.dumps({"service": {"id": "srv-new"}}), "combined": ""}
             if "services" in args and "--output" in args:
                 return {"ok": True, "stdout": json.dumps([]), "combined": ""}
@@ -363,3 +410,56 @@ class TestIdentityConfirmation:
 
         reviewer_prompts = [p for p in yes_no_calls if "reviewer" in p.lower()]
         assert len(reviewer_prompts) >= 1
+
+    def test_render_workspace_denied_aborts(self, monkeypatch):
+        """reviewer workspace не подтверждён → sys.exit(1)."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.check_cli_logged_in",
+            lambda *a: True,
+        )
+
+        create_calls = []
+        def fake_run_cmd(args, **kw):
+            if "workspace" in args and "current" in args:
+                return {"ok": True, "stdout": json.dumps({"id": "ws-1", "name": "MyWorkspace"})}
+            if "services" in args and "create" in args:
+                create_calls.append(args)
+                return {"ok": True, "stdout": json.dumps({"service": {"id": "srv-new"}}), "combined": ""}
+            if "services" in args and "--output" in args:
+                return {"ok": True, "stdout": json.dumps([]), "combined": ""}
+            return {"ok": True, "stdout": "{}", "combined": ""}
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.run_cmd",
+            fake_run_cmd,
+        )
+
+        def track_yes_no(prompt, *a, **kw):
+            if "reviewer" in prompt.lower():
+                return False  # denial
+            return True
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.ask_yes_no",
+            track_yes_no,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.ask",
+            lambda *a, **kw: "",
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.step_info",
+            lambda msg: None,
+        )
+
+        state = {
+            "supabase_project_ref": "ref",
+            "supabase_anon_key": "key",
+        }
+        plan = MagicMock()
+        plan.render_web_service_name = "test-svc"
+
+        with pytest.raises(SystemExit) as exc_info:
+            with patch("src.sandbox.bootstrap.commands.install_live_render.save_state"):
+                run_render_phase(plan, state)
+
+        assert exc_info.value.code == 1
+        assert len(create_calls) == 0  # не дошло до создания сервиса

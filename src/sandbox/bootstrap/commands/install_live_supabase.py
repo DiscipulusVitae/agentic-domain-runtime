@@ -81,17 +81,33 @@ def run_supabase_phase(plan, state: dict) -> None:
             state["supabase_org_id"] = org.get("id", "")
             state["supabase_org_name"] = org.get("name", "")
             step_pass(f"Организация: {org.get('name', 'неизвестно')} ({mask(org.get('id', ''))})")
-            if not ask_yes_no("Это reviewer/disposable организация? (Подтвердите, что не production.)",
-                              default=True):
-                step_info("Организация не подтверждена как reviewer — будьте осторожны.")
+            print()
+            if not ask_yes_no("Это reviewer/disposable организация?",
+                              default=False):
+                step_fail("Организация не подтверждена как reviewer. Завершение.")
+                print()
+                print("Для live proof используйте reviewer/test аккаунт,")
+                print("не personal/prod-associated. Создайте отдельный аккаунт")
+                print("или переключитесь на существующий reviewer/test аккаунт.")
+                print()
+                print("  supabase login          # перелогиниться под reviewer аккаунт")
+                print("  supabase orgs list      # проверить текущую организацию")
+                sys.exit(1)
         else:
             state["supabase_org_id"] = ""
             step_skip("Не удалось определить организацию, будет использована default.")
     else:
         step_pass(f"Организация: {state.get('supabase_org_name', 'неизвестно')} (из сохранённого состояния)")
-        if not ask_yes_no("Это reviewer/disposable организация? (Подтвердите, что не production.)",
-                          default=True):
-            step_info("Организация не подтверждена как reviewer — будьте осторожны.")
+        print()
+        if not ask_yes_no("Это reviewer/disposable организация?",
+                          default=False):
+            step_fail("Организация не подтверждена как reviewer. Завершение.")
+            print()
+            print("Для live proof используйте reviewer/test аккаунт,")
+            print("не personal/prod-associated. Перелогиньтесь или начните с чистого состояния.")
+            print("  supabase login")
+            print("  rm .bootstrap-state.json")
+            sys.exit(1)
 
     save_state(state)
 

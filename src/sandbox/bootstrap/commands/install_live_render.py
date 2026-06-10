@@ -131,9 +131,18 @@ def run_render_phase(plan, state: dict) -> None:
         state["render_workspace"] = workspace_name
         state["render_workspace_id"] = workspace_id
         step_info(f"Workspace: {workspace_name}")
-        if not ask_yes_no("Это reviewer/disposable workspace? (Подтвердите, что не production.)",
-                          default=True):
-            step_info("Workspace не подтверждён как reviewer — будьте осторожны.")
+        print()
+        if not ask_yes_no("Это reviewer/disposable workspace?",
+                          default=False):
+            step_fail("Workspace не подтверждён как reviewer. Завершение.")
+            print()
+            print("Для live proof используйте reviewer/test аккаунт,")
+            print("не personal/prod-associated. Создайте отдельный workspace")
+            print("или переключитесь на существующий reviewer/test workspace.")
+            print()
+            print("  render login              # перелогиниться под reviewer аккаунт")
+            print("  render workspace current   # проверить текущий workspace")
+            sys.exit(1)
     else:
         step_info("Workspace не выбран — ищу доступные...")
         workspace_name, workspace_id = _select_render_workspace(state)
