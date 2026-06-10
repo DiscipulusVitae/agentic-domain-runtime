@@ -19,7 +19,9 @@ from ..live_executor import (
     step_skip,
     step_fail,
     step_info,
+    save_state,
     mask,
+    discover_render_api_key,
 )
 
 
@@ -77,6 +79,9 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
 
     print()
 
+    # Сбор результатов очистки: какие ресурсы удалены, не удалены, пропущены
+    cleanup_results = {}
+
     # Step 1: Telegram webhook
     if webhook_set:
         step_header(1, 4, "Telegram webhook")
@@ -87,12 +92,15 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
                 state.pop("webhook_set", None)
                 state.pop("webhook_url", None)
                 state.pop("webhook_verified", None)
+                cleanup_results["webhook"] = "deleted"
             else:
                 step_fail("Не удалось удалить webhook.")
+                cleanup_results["webhook"] = "failed"
         else:
             step_skip("Токен не предоставлен — webhook не удалён.")
             print("  Удалите вручную:")
             print(f"  curl -X POST https://api.telegram.org/bot<TOKEN>/deleteWebhook")
+            cleanup_results["webhook"] = "manual_required"
 
     # Step 2: Render
     if service_id:
@@ -102,10 +110,12 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             step_pass(f"Render сервис {mask(sid)} удалён.")
             state.pop("render_service_id", None)
             state.pop("render_service_url", None)
+            cleanup_results["render"] = "deleted"
         else:
             step_fail(f"Не удалось удалить Render сервис {mask(sid)}.")
             print(f"  Dashboard: https://dashboard.render.com/web/srv-{sid}/settings")
-            print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid}")
+            print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
+            cleanup_results["render"] = "failed"
 
     # Step 3: Supabase
     if project_ref:
@@ -113,18 +123,45 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
         if _delete_supabase_project(project_ref):
             step_pass(f"Supabase проект {mask(project_ref)} удалён.")
             state.pop("supabase_project_ref", None)
+            cleanup_results["supabase"] = "deleted"
         else:
             step_fail(f"Не удалось удалить Supabase проект {mask(project_ref)}.")
             print(f"  Ручная команда:")
             print(f"  supabase projects delete {project_ref} --yes")
+            cleanup_results["supabase"] = "failed"
 
-    # Step 4: State file
+    # Step 4: State file (conditional)
     step_header(4, 4, "Локальное состояние")
-    try:
-        Path(".bootstrap-state.json").unlink(missing_ok=True)
-        step_pass(".bootstrap-state.json удалён.")
-    except OSError:
-        step_fail("Не удалось удалить файл состояния.")
+
+    failed_resources = {k: v for k, v in cleanup_results.items() if v != "deleted"}
+    all_cleared = not failed_resources
+
+    if all_cleared:
+        try:
+            Path(".bootstrap-state.json").unlink(missing_ok=True)
+            step_pass(".bootstrap-state.json удалён — все ресурсы очищены.")
+        except OSError:
+            step_fail("Не удалось удалить файл состояния.")
+    else:
+        # Сохраняем обновлённое состояние без удалённых ресурсов
+        save_state(state)
+        step_info("State file сохранён с оставшимися ресурсами.")
+        print()
+        print("  Не все ресурсы удалены:")
+        for resource, status in failed_resources.items():
+            print(f"    - {resource}: {status}")
+        print()
+        print("  Повторный запуск 'bootstrap cleanup --live' продолжит очистку.")
+
+    print()
+    print("--- Итоги очистки ---")
+    for resource, status in cleanup_results.items():
+        label_map = {"deleted": "удалён", "failed": "НЕ удалён", "manual_required": "требует ручного удаления"}
+        label = label_map.get(status, status)
+        print(f"  {resource:<15} {label}")
+
+    if "state_file" not in cleanup_results:
+        print(f"  state_file       {'удалён' if all_cleared else 'сохранён с оставшимися ресурсами'}")
 
     print()
     print("=" * 55)
@@ -202,7 +239,7 @@ def _delete_webhook(token: str) -> bool:
 
 
 def _delete_render_service(service_id: str) -> bool:
-    """Удаляет Render сервис через CLI."""
+    """Удаляет Render сервис: сначала CLI, затем REST API с авторизацией."""
     result = run_cmd(
         ["render", "services", "delete", service_id, "--confirm"],
         timeout=30,
@@ -210,20 +247,26 @@ def _delete_render_service(service_id: str) -> bool:
     if result["ok"]:
         return True
 
-    # Fallback: попробовать REST API
-    print("  Render CLI не сработал — пробую REST API...")
-    try:
-        req = urllib.request.Request(
-            f"{RENDER_API}/services/{service_id}",
-            method="DELETE",
-        )
-        resp = urllib.request.urlopen(req, timeout=15)
-        return resp.status in (200, 204)
-    except urllib.error.HTTPError as e:
-        step_info(f"REST API: HTTP {e.code}")
-        return False
-    except Exception:
-        return False
+    # Fallback: REST API с Bearer авторизацией
+    api_key = discover_render_api_key()
+    if api_key:
+        print("  Render CLI не сработал — пробую REST API...")
+        try:
+            req = urllib.request.Request(
+                f"{RENDER_API}/services/{service_id}",
+                method="DELETE",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            resp = urllib.request.urlopen(req, timeout=15)
+            return resp.status in (200, 204)
+        except urllib.error.HTTPError as e:
+            step_info(f"REST API: HTTP {e.code}")
+        except Exception as e:
+            step_info(f"REST API: {e}")
+
+    # Оба пути не сработали — инструкции
+    step_info("Render CLI и REST API не сработали.")
+    return False
 
 
 def _delete_supabase_project(project_ref: str) -> bool:

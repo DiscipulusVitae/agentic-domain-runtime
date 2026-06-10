@@ -68,8 +68,10 @@ Installer v1 alpha — реализован. Полный Win+WSL2 proof run з�
 
 ## Что сейчас в разработке
 
-- **Live installer hardening** — Win+WSL2 wrapper, Docker Desktop doctor UX, Telegram webhook фаза, cleanup/resume wizard. Приоритет: подготовка к Win ПК proof run.
-- **AI-reviewer simulation** — следующий шаг после installer hardening.
+- **Live installer v1 alpha** — guided wizard: doctor → plan → Supabase → Render → Telegram webhook → smoke → summary. Ждёт Win+WSL2 proof run.
+- **Cleanup wizard** — `bootstrap cleanup --live`, guided удаление ресурсов. Ждёт live validation.
+- **Security hardening** — Render REST API для secrets, conditional state deletion, fail-safe webhook. В процессе.
+- **AI-reviewer simulation** — следующий шаг после Win+WSL2 proof.
 
 ---
 

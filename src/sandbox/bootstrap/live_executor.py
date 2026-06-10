@@ -178,3 +178,39 @@ def get_supabase_api_keys(project_ref: str) -> dict:
         }
     except json.JSONDecodeError:
         return {"anon_key": "", "error": "Не удалось разобрать supabase status"}
+
+
+def discover_render_api_key() -> str | None:
+    """Ищет Render API key в локальной конфигурации CLI.
+
+    Render CLI после 'render login' сохраняет токен в одном из путей:
+      - ~/.render/api-key
+      - ~/.config/render/auth.json
+      - Переменная окружения RENDER_API_KEY
+    """
+    import os
+
+    env_key = os.environ.get("RENDER_API_KEY")
+    if env_key:
+        return env_key.strip()
+
+    key_file = os.path.expanduser("~/.render/api-key")
+    try:
+        with open(key_file, "r") as f:
+            content = f.read().strip()
+            if content:
+                return content
+    except OSError:
+        pass
+
+    auth_file = os.path.expanduser("~/.config/render/auth.json")
+    try:
+        with open(auth_file, "r") as f:
+            data = json.load(f)
+            for field in ("api_key", "apiKey", "token", "access_token", "key"):
+                if data.get(field):
+                    return str(data[field])
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    return None

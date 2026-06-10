@@ -17,6 +17,7 @@ from ..live_executor import (
     step_info,
     save_state,
     mask,
+    discover_render_api_key,
 )
 
 TELEGRAM_API = "https://api.telegram.org"
@@ -113,7 +114,6 @@ def run_telegram_phase(plan, state: dict) -> None:
     if render_env_result:
         step_info("Ожидание деплоя Render с новыми env vars (до 2 мин)...")
         time.sleep(20)
-        # Поллинг /health
         health_url = f"{service_url}/health" if not service_url.endswith("/") else f"{service_url}health"
         for attempt in range(8):
             time.sleep(10)
@@ -127,6 +127,14 @@ def run_telegram_phase(plan, state: dict) -> None:
                 step_info(f"Попытка {attempt + 1}/8...")
         else:
             step_info("Не удалось дождаться /health — продолжаем с текущим URL.")
+    else:
+        step_fail("Не удалось передать env vars в Render. Webhook не будет установлен.")
+        print("  Бот не сможет принимать webhook-запросы без TOKEN и SECRET в окружении Render.")
+        print("  Установите переменные вручную в Dashboard и перезапустите install.")
+        state["telegram_env_failed"] = True
+        state.pop("_telegram_token", None)
+        save_state(state)
+        return
 
     # Шаг 6: setWebhook
     webhook_url = f"{service_url.rstrip('/')}/webhook/telegram"
@@ -211,51 +219,66 @@ def _telegram_api_call(token: str, method: str, data: dict | None = None) -> dic
 
 
 def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) -> bool:
-    """Передаёт Telegram env vars в Render сервис через CLI.
+    """Передаёт Telegram env vars в Render сервис через REST API.
 
-    Безопасность: token передаётся через stdin, не появляется в аргументах командной строки.
+    Токен и секрет передаются в теле HTTP-запроса, не в argv.
+    Использует Render API key из локальной конфигурации CLI.
+
+    Returns:
+        True если хотя бы одна переменная успешно установлена.
     """
     service_id = state.get("render_service_id")
     if not service_id:
         return False
 
-    # Передаём env vars через Render CLI
-    # Примечание: render CLI для update env vars — render env set
+    api_key = discover_render_api_key()
+    if not api_key:
+        step_info("Render API key не найден — env vars не установлены.")
+        step_info("Установите переменные вручную в Render Dashboard:")
+        print(f"  Dashboard: https://dashboard.render.com/web/srv-{service_id}/env")
+        print(f"  TELEGRAM_BOT_TOKEN=<токен>")
+        print(f"  WEBHOOK_SECRET=<секрет>")
+        return False
 
-    # 1. TELEGRAM_BOT_TOKEN — через render CLI, токен маскируется в выводе
-    result = run_cmd([
-        "render", "env", "set", "TELEGRAM_BOT_TOKEN", telegram_token,
-        "--service-id", service_id,
-    ], timeout=15)
+    env_vars = [
+        {"key": "TELEGRAM_BOT_TOKEN", "value": telegram_token},
+        {"key": "WEBHOOK_SECRET", "value": webhook_secret},
+    ]
 
-    if not result["ok"]:
-        # Пробуем альтернативный синтаксис
-        result = run_cmd([
-            "render", "services", "env", "set", "TELEGRAM_BOT_TOKEN", telegram_token,
-            "--service-id", service_id,
-        ], timeout=15)
+    url = f"https://api.render.com/v1/services/{service_id}/env-vars"
+    body = json.dumps(env_vars).encode()
 
-    if not result["ok"] and "authentication required" in result["combined"].lower():
-        step_info("Render CLI требует повторной авторизации. Выполните 'render login' в другом терминале.")
-        ask("Нажмите Enter когда будете готовы...")
-        result = run_cmd([
-            "render", "env", "set", "TELEGRAM_BOT_TOKEN", telegram_token,
-            "--service-id", service_id,
-        ], timeout=15)
-
-    if result["ok"]:
-        step_pass("TELEGRAM_BOT_TOKEN передан в Render.")
-
-    # 2. WEBHOOK_SECRET
-    result2 = run_cmd([
-        "render", "env", "set", "WEBHOOK_SECRET", webhook_secret,
-        "--service-id", service_id,
-    ], timeout=15)
-
-    if result2["ok"]:
-        step_pass("WEBHOOK_SECRET передан в Render.")
-
-    return result["ok"] or result2["ok"]
+    try:
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method="PUT",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=30)
+        if resp.status == 200:
+            step_pass("TELEGRAM_BOT_TOKEN и WEBHOOK_SECRET переданы в Render (REST API).")
+            return True
+        else:
+            step_info(f"Render API ответил HTTP {resp.status}")
+            return False
+    except urllib.error.HTTPError as e:
+        body_text = ""
+        try:
+            body_text = e.read().decode()[:300]
+        except Exception:
+            pass
+        step_fail(f"Render API: HTTP {e.code} — {body_text}")
+        print(f"  Установите env vars вручную: https://dashboard.render.com/web/srv-{service_id}/env")
+        return False
+    except Exception as e:
+        step_fail(f"Render API недоступен: {e}")
+        print(f"  Установите env vars вручную: https://dashboard.render.com/web/srv-{service_id}/env")
+        return False
 
 
 def _webhook_smoke(token: str, webhook_url: str, webhook_secret: str) -> None:
