@@ -3,8 +3,8 @@
 This document details the architectural design for the future live deployment and mutation path (`live apply`) of the `agentic-domain-runtime`.
 
 > [!WARNING]
-> **Current Status: Design Only (Out of Scope)**
-> This specification is purely advisory and acts as a blueprint for future infrastructure orchestration. State mutations, cloud resource creation, and external API integrations are currently restricted to dry-run simulations (`--dry-run`). No execution logic exists in the current runtime to mutate live production resources.
+> **Current Status: Design + Alpha**
+> This specification is the architectural blueprint for live infrastructure orchestration. A guided wizard v1 alpha (`bootstrap install --yes`) is implemented and proven on Win+WSL2 — covering Supabase live path, existing Render service `/health`, and Telegram webhook. Fresh Render ADR deploy and cleanup live proof remain pending. The design below describes the full target architecture; sections not yet implemented are explicitly marked.
 
 ---
 

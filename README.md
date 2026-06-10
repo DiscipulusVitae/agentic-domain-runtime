@@ -47,9 +47,10 @@ Additionally, a live guided wizard (v1 alpha) and cloud bootstrap proof exist fo
 | Offline sandbox + Docker reviewer path | работает |
 | Local Supabase (схема, RLS, smoke.sql) | работает |
 | `bootstrap install --dry-run` (preview/checklist) | работает |
-| Cloud proof (Supabase + Render + Telegram /health) | доказан на disposable ресурсах |
+| Cloud proof (Supabase + существующий Render + Telegram /health) | доказан на disposable ресурсах |
 | `bootstrap install --yes` live wizard (guided) | v1 alpha |
-| Win+WSL2 proof run | запланирован (hardening в процессе) |
+| Win+WSL2 proof run | выполнен с caveats (fresh Render pending) |
+| Fresh Render ADR deploy | pending |
 
 → Подробнее см. **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** (Path C) и **[Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
 

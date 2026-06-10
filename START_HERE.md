@@ -55,7 +55,7 @@ uv run python -m src.sandbox bootstrap install --yes
 ```
 
 Operational proof на disposable ресурсах (Supabase + Render + Telegram /health) — выполнен.
-Installer v1 alpha — реализован. Полный Win+WSL2 proof run запланирован.
+Installer v1 alpha — реализован. Win+WSL2 proof run выполнен с caveats: guided wizard + Supabase live path proven, fresh Render ADR deploy pending.
 
 **Ручной runbook (fallback):**
 
@@ -68,10 +68,10 @@ Installer v1 alpha — реализован. Полный Win+WSL2 proof run з�
 
 ## Что сейчас в разработке
 
-- **Live installer v1 alpha** — guided wizard: doctor → plan → Supabase → Render → Telegram webhook → smoke → summary. Ждёт Win+WSL2 proof run.
+- **Live installer v1 alpha** — принят. Guided wizard (7 шагов: doctor → plan → Supabase → Render → Telegram webhook → smoke → summary) доказан на Win+WSL2. Fresh Render ADR deploy — pending.
 - **Cleanup wizard** — `bootstrap cleanup --live`, guided удаление ресурсов. Ждёт live validation.
-- **Security hardening** — Render REST API для secrets, conditional state deletion, fail-safe webhook. В процессе.
-- **AI-reviewer simulation** — следующий шаг после Win+WSL2 proof.
+- **Security hardening** — Render REST API для secrets, conditional state deletion, fail-safe webhook. Завершён.
+- **AI-reviewer simulation** — следующий горизонт.
 
 ---
 
@@ -82,6 +82,6 @@ Installer v1 alpha — реализован. Полный Win+WSL2 proof run з�
 | Offline sandbox (тесты, сценарии, HTTP server) | работает | fully offline |
 | Docker reviewer path | работает | полностью контейнеризован |
 | Local Supabase (схема, RLS, smoke.sql) | работает | Docker + Supabase CLI |
-| Cloud bootstrap (Supabase + Render + Telegram /health) | доказан | ручной runbook, human-authorized |
+| Cloud bootstrap (Supabase + Render + Telegram /health) | доказан (существующий сервис) | ручной runbook, human-authorized |
 | Live installer (guided wizard) | v1 alpha | `bootstrap install --yes` |
-| Win+WSL2 proof run | запланирован | hardening в процессе |
+| Win+WSL2 proof run | выполнен с caveats | guided wizard + Supabase proven, fresh Render pending |

@@ -13,7 +13,7 @@ The codebase operates in distinct modes to allow safe review at different levels
 | **Offline** | **No** | **No** | **None** (In-memory mock only) | Offline logic verification, tests, and CLI mock runs | `pytest`, `--scenario <domain> --full`, `runtime serve` |
 | **Read-Only** | **No** | **No** | **None** | Environment diagnostics, state check, and local setup readiness verification | `bootstrap checks --read-only`, `bootstrap doctor`, `bootstrap state --show` |
 | **Dry-Run** | **No** | **No** | **None** (Generates plan/checklist only) | Simulating cloud deployments, DB configurations, and API webhook setups | `bootstrap install --dry-run`, `bootstrap supabase --local --dry-run`, `bootstrap telegram --webhook --dry-run`, `bootstrap apply --dry-run`, `bootstrap smoke --dry-run`, `bootstrap state --init --dry-run`, `bootstrap simulate --local`, `bootstrap cleanup --preview --local` |
-| **Future Live** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Production deployments and live cloud management (Design Only) | Planned `bootstrap apply` (without `--dry-run`), live production deploy (see [LIVE_APPLY_DESIGN.md](LIVE_APPLY_DESIGN.md)) |
+| **Live Alpha / Human-Authorized** | **Yes** (Cloud/API) | **Yes** (Render, Supabase, Telegram keys) | Cloud resources, Database schemas, Bot webhooks | Live guided wizard v1 alpha (existing ADR-compatible Render service proven; fresh Render deploy pending) | `bootstrap install --yes` (alpha, guided wizard) |
 
 ---
 
@@ -27,15 +27,20 @@ Every step in the default reviewer path comes with the following safety guarante
 
 ---
 
-## 3. Future Live Boundaries (Design Only)
+## 3. Live Alpha / Human-Authorized Boundaries
 
-The following capabilities are **explicitly out of scope** for active code execution in this public milestone, but their target architecture, rollback strategy, and gates are defined in the **[Live Apply Design Spec](LIVE_APPLY_DESIGN.md)**:
-* **Live Supabase Apply**: Execution of `supabase db push` or direct cloud schema mutations.
-* **Render Resource/Env Mutation**: Provisioning web services, setting env groups, or altering deploy parameters in Render.
-* **Telegram Bot API Webhook Mutation**: Outbound `setWebhook` API operations or modifying live bot handlers.
-* **Production Deploy**: Merging, building, and deploying the application stack into a live production environment.
+Path C alpha (`bootstrap install --yes`) has been implemented and proven on Win+WSL2 with caveats. The following is proven:
 
-The first proposed live boundary is documented separately as a human/operator approval package: **[First Live GO Package](FIRST_LIVE_GO_PACKAGE.md)**. It is prepared for review only; it does not authorize or execute live mutation by itself. Any future live mutation must first satisfy the **[Operator Cleanroom](OPERATOR_CLEANROOM.md)** account-isolation gate.
+* **Supabase live path**: disposable project creation, schema push, config push, seed, smoke — all through guided wizard.
+* **Existing ADR-compatible Render service**: `/health` HTTP 200 with Supabase persistence — proven on existing service.
+* **Telegram webhook**: BotFather → setWebhook → getWebhookInfo → synthetic smoke — proven.
+
+Pending before full deploy claim:
+* **Fresh Render ADR service creation**: Dockerfile/image/native deploy strategy to create a Render service from scratch through the installer.
+* **Cleanup live proof**: guided `bootstrap cleanup --live` wizard validation on live resources.
+* **Telegram `/start` response**: visible bot reply to user messages in Telegram chat.
+
+The architecture for future production use is defined in **[Live Apply Design Spec](LIVE_APPLY_DESIGN.md)**, and the first live boundary package is in **[First Live GO Package](FIRST_LIVE_GO_PACKAGE.md)**. Any live mutation must first satisfy the **[Operator Cleanroom](OPERATOR_CLEANROOM.md)** account-isolation gate.
 
 ---
 
@@ -309,7 +314,7 @@ For reviewers analyzing our PostgreSQL/Supabase boundaries:
 
 ## Path C: Cloud Bootstrap (Proven, Human-Authorized)
 
-The system has been proven deployable on disposable cloud resources (Supabase + Render). This path documents what was proven and how a reviewer could reproduce it.
+The system has been proven operational on disposable cloud resources (Supabase + existing Render service). The guided wizard (`bootstrap install --yes`) is v1 alpha, proven on Win+WSL2 with caveats (fresh Render deploy pending). This path documents what was proven and how a reviewer could reproduce it.
 
 ### Model
 
