@@ -111,7 +111,7 @@ Provides a fully containerized, reproducible, and safe environment for verifying
 ### Path B: Native Ubuntu 26.04 Path (Secondary / Debug)
 Runs completely offline with zero infrastructure dependencies. It uses a local fake LLM provider and in-memory persistence mocks to demonstrate the domain routing, extraction, validation, and storage workflows without needing external APIs or a live database.
 
-> **WSL2 one-liner:** на Win+WSL2 используйте скрипт-обёртку:
+> **WSL2 one-liner:** на Win+WSL2 используйте скрипт-обёртку (запускать **без sudo**, от обычного пользователя):
 > ```bash
 > bash scripts/adr_bootstrap_wsl2.sh
 > ```

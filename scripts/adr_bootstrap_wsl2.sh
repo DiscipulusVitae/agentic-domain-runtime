@@ -2,11 +2,23 @@
 # ADR WSL2 Bootstrap — zero-to-repo wrapper for Win+WSL2
 # Назначение: подготовить среду (uv, git, repo, deps) и запустить guided installer.
 # Все live cloud mutations остаются под explicit y/N внутри wizard.
+#
+# Запуск: bash scripts/adr_bootstrap_wsl2.sh
+# НЕ использовать sudo. Для apt-get скрипт сам запросит sudo.
 
 set -euo pipefail
 
 echo "=== ADR WSL2 Bootstrap ==="
 echo ""
+
+# 0. Root guard
+if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    echo "ОШИБКА: скрипт запущен от root через sudo."
+    echo "  Запустите от обычного пользователя (без sudo):"
+    echo "    bash scripts/adr_bootstrap_wsl2.sh"
+    echo "  Для apt-get скрипт сам запросит пароль при необходимости."
+    exit 1
+fi
 
 # 1. Check OS/WSL2 context
 if grep -qE "microsoft|WSL" /proc/version 2>/dev/null; then
@@ -81,12 +93,19 @@ fi
 # 4. Install uv if missing
 echo ""
 echo ">>> Проверка uv..."
+UV_FOUND=false
 if command -v uv >/dev/null 2>&1; then
+    UV_FOUND=true
     echo "  [OK] uv: $(uv --version 2>/dev/null || echo 'версия не определена')"
-else
+elif [ -x "$HOME/.local/bin/uv" ]; then
+    UV_FOUND=true
+    export PATH="$HOME/.local/bin:$PATH"
+    echo "  [OK] uv: $($HOME/.local/bin/uv --version 2>/dev/null || echo 'найден в ~/.local/bin')"
+fi
+
+if [ "$UV_FOUND" != "true" ]; then
     echo "  [MISS] uv не найден. Устанавливаю..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    # Reload env
     if [ -f "$HOME/.local/bin/env" ]; then
         source "$HOME/.local/bin/env"
     fi
@@ -94,14 +113,14 @@ else
     echo "  [OK] uv установлен."
 fi
 
-# 5. Node.js check (for Supabase CLI and Render CLI)
+# 5. Node.js check (for Supabase CLI)
 echo ""
-echo ">>> Проверка Node.js (для Supabase CLI и Render CLI)..."
+echo ">>> Проверка Node.js (для Supabase CLI)..."
 if command -v node >/dev/null 2>&1; then
     echo "  [OK] Node.js: $(node --version 2>/dev/null || echo 'неизвестно')"
 else
     echo "  [MISS] Node.js не найден."
-    echo "  Supabase CLI и Render CLI требуют Node.js/npm."
+    echo "  Supabase CLI требует Node.js/npm."
     echo "  Установить Node.js сейчас? [y/N]"
     read -r REPLY
     if [ "${REPLY:-}" = "y" ] || [ "${REPLY:-}" = "Y" ]; then
@@ -136,18 +155,25 @@ fi
 echo ""
 echo ">>> Проверка Render CLI..."
 if command -v render >/dev/null 2>&1; then
-    echo "  [OK] Render CLI обнаружен."
+    echo "  [OK] Render CLI: $(render --version 2>/dev/null || echo 'обнаружен')"
 else
     echo "  [MISS] Render CLI не найден."
-    if command -v npm >/dev/null 2>&1; then
-        echo "  Установить Render CLI через npm? [y/N]"
-        read -r REPLY
-        if [ "${REPLY:-}" = "y" ] || [ "${REPLY:-}" = "Y" ]; then
-            npm install -g @renderinc/cli
-            echo "  [OK] Render CLI установлен."
+    echo "  Render CLI распространяется как бинарник (не npm-пакет)."
+    echo "  Установить сейчас? [y/N]"
+    read -r REPLY
+    if [ "${REPLY:-}" = "y" ] || [ "${REPLY:-}" = "Y" ]; then
+        INSTALL_DIR="${HOME}/.local/bin"
+        mkdir -p "$INSTALL_DIR"
+        echo "  Скачиваю Render CLI..."
+        curl -fsSL -o "$INSTALL_DIR/render" \
+            "https://github.com/render-oss/cli/releases/latest/download/render-linux-amd64"
+        chmod +x "$INSTALL_DIR/render"
+        echo "  [OK] Render CLI установлен в $INSTALL_DIR/render"
+        if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
+            echo "  Добавьте в ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
         fi
     else
-        echo "  Пропущено — npm не найден. Установите Render CLI самостоятельно."
+        echo "  Пропущено. Установите вручную: https://github.com/render-oss/cli/releases"
     fi
 fi
 

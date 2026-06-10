@@ -155,6 +155,6 @@ def check_render() -> dict:
     return {
         "status": "FAIL",
         "message": err_msg,
-        "hint": "Установите Render CLI через npm.",
-        "action": "npm install -g @renderinc/cli"
+        "hint": "Скачайте Render CLI с GitHub: https://github.com/render-oss/cli/releases",
+        "action": "curl -fsSL -o ~/.local/bin/render https://github.com/render-oss/cli/releases/latest/download/render-linux-amd64 && chmod +x ~/.local/bin/render"
     }
