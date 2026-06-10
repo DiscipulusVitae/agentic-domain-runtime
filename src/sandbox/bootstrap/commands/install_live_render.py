@@ -109,6 +109,8 @@ def run_render_phase(plan, state: dict) -> None:
                         if svc.get("name") == service_name:
                             service_id = svc.get("id", "")
                             service_url = svc.get("url", "")
+                            if not service_url:
+                                service_url = f"https://{service_name}.onrender.com"
                             state["render_service_id"] = service_id
                             state["render_service_url"] = service_url
                             step_pass(f"Найден существующий сервис: {service_url or mask(service_id)}")
@@ -132,7 +134,7 @@ def run_render_phase(plan, state: dict) -> None:
                 "--name", service_name,
                 "--type", "web_service",
                 "--runtime", "docker",
-                "--repo", "https://github.com/DiscipulusVitae/agentic-domain-runtime.git",
+                "--image", "traefik/whoami:latest",
                 "--plan", "free",
                 "--region", "frankfurt",
                 "--output", "json",
@@ -153,6 +155,9 @@ def run_render_phase(plan, state: dict) -> None:
                     service_id = svc.get("id", "")
                     service_url = svc.get("url", "")
                     if service_id:
+                        # URL может быть пустым для свежесозданного сервиса
+                        if not service_url:
+                            service_url = f"https://{service_name}.onrender.com"
                         state["render_service_id"] = service_id
                         state["render_service_url"] = service_url
                         step_pass(f"Сервис создан: {service_url or mask(service_id)}")
@@ -178,6 +183,8 @@ def run_render_phase(plan, state: dict) -> None:
                                     if svc.get("name") == service_name:
                                         service_id = svc.get("id", "")
                                         service_url = svc.get("url", "")
+                                        if not service_url:
+                                            service_url = f"https://{service_name}.onrender.com"
                                         state["render_service_id"] = service_id
                                         state["render_service_url"] = service_url
                                         step_pass(f"Найден существующий сервис: {service_url}")
