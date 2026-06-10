@@ -309,6 +309,8 @@ def run_supabase_phase(plan, state: dict) -> None:
             else:
                 step_skip("Anon ключ не задан — /health проверка Render будет недоступна.")
 
+    # Очистка stale skip-флагов при успешном завершении фазы
+    state.pop("supabase_skipped", None)
     save_state(state)
 
 

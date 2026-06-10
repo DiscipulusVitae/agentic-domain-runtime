@@ -237,6 +237,8 @@ def run_render_phase(plan, state: dict) -> None:
     else:
         step_skip("URL сервиса неизвестен — пропускаем /health проверку.")
 
+    # Очистка stale skip-флагов при успешном завершении фазы
+    state.pop("render_skipped", None)
     save_state(state)
 
 

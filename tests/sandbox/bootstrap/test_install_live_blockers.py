@@ -519,3 +519,125 @@ class TestSupabaseProjectCreateTTY:
 
         link_interactive = [args for args in run_interactive_calls if "link" in args]
         assert len(link_interactive) >= 1, f"run_interactive={run_interactive_calls}"
+
+
+class TestStaleSkipFlags:
+    """T305.6: stale skip-флаги должны очищаться при успехе фазы."""
+
+    def test_render_success_clears_render_skipped(self, monkeypatch):
+        """После успешной render фазы render_skipped удаляется из state."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.run_interactive",
+            lambda *a, **kw: 0,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.check_cli_logged_in",
+            lambda *a: True,
+        )
+
+        def fake_run_cmd(args, **kw):
+            if "workspace" in args and "current" in args:
+                return {"ok": True, "stdout": json.dumps({"id": "ws-1", "name": "test-ws"}), "combined": ""}
+            if "services" in args:
+                return {"ok": True, "stdout": "null", "combined": ""}
+            return {"ok": True, "stdout": "{}", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.run_cmd",
+            fake_run_cmd,
+        )
+
+        state = {
+            "render_service_id": "srv-old",
+            "render_service_url": "https://test.onrender.com",
+            "supabase_anon_key": "fake-key",
+            "render_skipped": True,  # stale флаг от предыдущего прогона
+        }
+        plan = MagicMock()
+        plan.render_web_service_name = "test-svc"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_render.save_state"):
+            with patch("src.sandbox.bootstrap.commands.install_live_render.ask_yes_no",
+                       lambda *a, **kw: True):
+                with patch("src.sandbox.bootstrap.commands.install_live_render.ask",
+                           lambda *a, **kw: ""):
+                    with patch("urllib.request.urlopen") as mock_open:
+                        mock_resp = MagicMock()
+                        mock_resp.status = 200
+                        mock_resp.read.return_value = b'{"status":"ok"}'
+                        mock_open.return_value = mock_resp
+                        run_render_phase(plan, state)
+
+        assert "render_skipped" not in state
+
+    def test_telegram_skips_with_render_skipped_stale(self, monkeypatch):
+        """Если render_skipped=True, Telegram фаза скипает с указанием причины."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
+            lambda: None,
+        )
+
+        def fake_telegram_api(token, method, data=None):
+            if method == "getMe":
+                return {"ok": True, "result": {"first_name": "T", "username": "tbot"}}
+            return {"ok": False}
+
+        state = {
+            "render_service_url": "https://test.onrender.com",
+            "render_skipped": True,  # stale
+            "_telegram_token": "test-token",
+        }
+
+        with patch(
+            "src.sandbox.bootstrap.commands.install_live_telegram._telegram_api_call",
+            fake_telegram_api,
+        ):
+            with patch("src.sandbox.bootstrap.commands.install_live_telegram.save_state"):
+                with patch("src.sandbox.bootstrap.commands.install_live_telegram.ask_yes_no",
+                           lambda *a, **kw: True):
+                    run_telegram_phase(MagicMock(), state)
+
+        assert state.get("telegram_skipped") is True
+
+    def test_telegram_proceeds_when_render_skipped_cleared(self, monkeypatch):
+        """Если render_skipped очищен и URL есть, фаза идёт дальше."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
+            lambda: "rk_fake",
+        )
+
+        api_calls = []
+        def fake_telegram_api(token, method, data=None):
+            api_calls.append(method)
+            if method == "getMe":
+                return {"ok": True, "result": {"first_name": "T", "username": "tbot"}}
+            if method == "setWebhook":
+                return {"ok": True, "result": True}
+            if method == "getWebhookInfo":
+                return {"ok": True, "result": {"url": "https://test.onrender.com/webhook/telegram"}}
+            return {"ok": False}
+
+        state = {
+            "render_service_url": "https://test.onrender.com",
+            "render_service_id": "srv-test",
+            "_telegram_token": "test-token",
+        }
+
+        with patch(
+            "src.sandbox.bootstrap.commands.install_live_telegram._telegram_api_call",
+            fake_telegram_api,
+        ):
+            with patch("src.sandbox.bootstrap.commands.install_live_telegram.save_state"):
+                with patch("src.sandbox.bootstrap.commands.install_live_telegram.ask_yes_no",
+                           lambda *a, **kw: True):
+                    with patch("src.sandbox.bootstrap.commands.install_live_telegram.ask",
+                               lambda *a, **kw: ""):
+                        with patch("urllib.request.urlopen") as mock_open:
+                            with patch("time.sleep", lambda s: None):
+                                resp = MagicMock()
+                                resp.status = 200
+                                mock_open.return_value = resp
+                                run_telegram_phase(MagicMock(), state)
+
+        assert "setWebhook" in api_calls
+        assert state.get("webhook_set") is True

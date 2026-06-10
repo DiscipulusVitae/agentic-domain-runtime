@@ -93,7 +93,15 @@ def run_telegram_phase(plan, state: dict) -> None:
 
     # Шаг 3: Render URL должен быть доступен
     service_url = state.get("render_service_url")
-    if not service_url or state.get("render_skipped"):
+    render_skipped = state.get("render_skipped")
+
+    if not service_url or render_skipped:
+        reasons = []
+        if not service_url:
+            reasons.append("render_service_url отсутствует")
+        if render_skipped:
+            reasons.append("render_skipped=True (stale флаг?)")
+        step_info(f"Причина пропуска: {', '.join(reasons)}")
         step_skip("Render URL недоступен — webhook setup невозможен.")
         if not ask_yes_no("Продолжить без webhook?"):
             sys.exit(1)
