@@ -155,6 +155,6 @@ def check_render() -> dict:
     return {
         "status": "FAIL",
         "message": err_msg,
-        "hint": "Скачайте Render CLI с GitHub: https://github.com/render-oss/cli/releases",
-        "action": "curl -fsSL -o ~/.local/bin/render https://github.com/render-oss/cli/releases/latest/download/render-linux-amd64 && chmod +x ~/.local/bin/render"
+        "hint": "Скачайте Render CLI с GitHub: https://github.com/render-oss/cli/releases (zip-архив linux_amd64, извлеките render в ~/.local/bin/)",
+        "action": "См. scripts/adr_bootstrap_wsl2.sh — автоматическая установка Render CLI"
     }

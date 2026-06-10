@@ -164,13 +164,29 @@ else
     if [ "${REPLY:-}" = "y" ] || [ "${REPLY:-}" = "Y" ]; then
         INSTALL_DIR="${HOME}/.local/bin"
         mkdir -p "$INSTALL_DIR"
+        TMP_DIR=$(mktemp -d)
+        trap 'rm -rf "$TMP_DIR"' EXIT
         echo "  Скачиваю Render CLI..."
-        curl -fsSL -o "$INSTALL_DIR/render" \
-            "https://github.com/render-oss/cli/releases/latest/download/render-linux-amd64"
-        chmod +x "$INSTALL_DIR/render"
-        echo "  [OK] Render CLI установлен в $INSTALL_DIR/render"
-        if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
-            echo "  Добавьте в ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+        RENDER_VER=$(curl -sL "https://api.github.com/repos/render-oss/cli/releases/latest" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
+        if [ -z "$RENDER_VER" ]; then
+            RENDER_VER="v2.20.0"
+        fi
+        ZIP_URL="https://github.com/render-oss/cli/releases/download/${RENDER_VER}/cli_${RENDER_VER#v}_linux_amd64.zip"
+        if curl -fsSL -o "$TMP_DIR/render.zip" "$ZIP_URL"; then
+            unzip -o "$TMP_DIR/render.zip" -d "$TMP_DIR" >/dev/null 2>&1
+            if [ -f "$TMP_DIR/render" ]; then
+                mv "$TMP_DIR/render" "$INSTALL_DIR/render"
+                chmod +x "$INSTALL_DIR/render"
+                echo "  [OK] Render CLI ${RENDER_VER} установлен в $INSTALL_DIR/render"
+                if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
+                    echo "  Добавьте в ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+                fi
+            else
+                echo "  Ошибка: не удалось извлечь render из архива."
+            fi
+        else
+            echo "  Ошибка: не удалось скачать Render CLI."
+            echo "  Установите вручную: https://github.com/render-oss/cli/releases"
         fi
     else
         echo "  Пропущено. Установите вручную: https://github.com/render-oss/cli/releases"
