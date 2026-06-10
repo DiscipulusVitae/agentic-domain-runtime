@@ -12,7 +12,7 @@ import time
 import urllib.request
 import urllib.error
 
-from ..env_checks import check_python, check_uv, check_docker, check_supabase, check_render
+from ..env_checks import check_python, check_uv, check_docker, check_supabase, check_render, is_tty_available, TTY_ERROR_MESSAGE
 from ..plan import generate_bootstrap_plan
 
 from ..live_executor import (
@@ -38,6 +38,13 @@ TOTAL_STEPS = 7
 
 def run_install_live(json_mode: bool = False) -> int:
     """Запускает живой мастер установки ADR."""
+    if not is_tty_available():
+        if json_mode:
+            print(json.dumps({"error": "tty_required", "message": TTY_ERROR_MESSAGE.split(chr(10))[0]}, ensure_ascii=False))
+        else:
+            print(TTY_ERROR_MESSAGE, file=sys.stderr)
+        return 1
+
     state = load_state()
     plan = generate_bootstrap_plan()
 

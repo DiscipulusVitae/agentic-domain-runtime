@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from ..env_checks import is_tty_available, TTY_ERROR_MESSAGE
 from ..live_executor import (
     ask,
     ask_yes_no,
@@ -71,6 +72,13 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
         print("Это был preview-режим. Никакие ресурсы не были удалены.")
         print("Для реальной очистки запустите: bootstrap cleanup --live")
         return 0
+
+    if not is_tty_available():
+        if json_mode:
+            print(json.dumps({"error": "tty_required", "message": TTY_ERROR_MESSAGE.split(chr(10))[0]}, ensure_ascii=False))
+        else:
+            print(TTY_ERROR_MESSAGE, file=sys.stderr)
+        return 1
 
     print()
     if not ask_yes_no("Выполнить очистку этих ресурсов?", default=False):

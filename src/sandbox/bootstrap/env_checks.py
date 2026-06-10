@@ -2,6 +2,32 @@ import os
 import subprocess
 import sys
 
+
+TTY_ERROR_MESSAGE = (
+    "TTY/PTY требуется для интерактивных live-потоков установщика.\n"
+    "Эта среда вероятно запускает команды без терминала (no-TTY).\n"
+    "\n"
+    "TTY-capable среды: Antigravity IDE, Codex VSC Ext, обычный терминал.\n"
+    "No-TTY среды: OpenCode GUI/TUI, Kilo Code GUI/TUI.\n"
+    "\n"
+    "Альтернативы для no-TTY:\n"
+    "  - uv run python -m src.sandbox bootstrap install --dry-run\n"
+    "  - Ручной runbook: docs/SUPABASE_RENDER_WIRING_RUNBOOK.md\n"
+)
+
+
+def is_tty_available() -> bool:
+    """Проверяет, доступен ли TTY для интерактивного ввода/вывода.
+
+    Возвращает True если stdin, stdout И stderr — все TTY.
+    В no-TTY окружениях (pipe, IDE без терминала) возвращает False.
+    """
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty() and sys.stderr.isatty()
+    except Exception:
+        return False
+
+
 def _is_wsl() -> bool:
     """Определяет, запущена ли программа в WSL (Windows Subsystem for Linux)."""
     try:
