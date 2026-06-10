@@ -2,6 +2,17 @@ import os
 import subprocess
 import sys
 
+def _is_wsl() -> bool:
+    """Определяет, запущена ли программа в WSL (Windows Subsystem for Linux)."""
+    try:
+        with open("/proc/version", "r") as f:
+            content = f.read().lower()
+        return "microsoft" in content or "wsl" in content
+    except OSError:
+        pass
+    return "WSL_DISTRO_NAME" in os.environ or "WSL_INTEROP" in os.environ
+
+
 def check_command(args: list[str]) -> tuple[bool, str]:
     """Запускает системную команду и возвращает успешность и её вывод."""
     try:
@@ -63,7 +74,8 @@ def check_uv() -> dict:
 
 
 def check_docker() -> dict:
-    """Проверяет доступность Docker CLI и запущен ли демон."""
+    """Проверяет доступность Docker CLI и запущен ли демон.
+    В WSL2 даёт специфичные подсказки для Docker Desktop."""
     cli_ok, cli_out = check_command(["docker", "--version"])
     if not cli_ok:
         err_msg = f"Docker CLI не установлен или недоступен ({cli_out})" if cli_out else "Docker CLI не установлен или недоступен"
@@ -79,6 +91,20 @@ def check_docker() -> dict:
         return {
             "status": "OK",
             "message": "Docker daemon запущен и готов"
+        }
+
+    is_wsl = _is_wsl()
+    if is_wsl:
+        return {
+            "status": "WARN",
+            "message": "Docker CLI доступен, но демон не отвечает (WSL2)",
+            "hint": (
+                "Docker Desktop WSL integration, вероятно, не включена. "
+                "Откройте Docker Desktop в Windows → Settings → Resources → "
+                "WSL Integration → включите для текущего дистрибутива WSL. "
+                "Затем перезапустите WSL терминал."
+            ),
+            "action": "Проверьте Docker Desktop WSL Integration в настройках Windows"
         }
     else:
         return {
