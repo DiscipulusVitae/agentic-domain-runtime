@@ -268,11 +268,12 @@ def _telegram_api_call(token: str, method: str, data: dict | None = None) -> dic
 def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) -> bool:
     """Передаёт Telegram env vars в Render сервис через REST API.
 
+    GET существующие env vars → merge с Telegram vars → PUT полный merged set.
     Токен и секрет передаются в теле HTTP-запроса, не в argv.
     Использует Render API key из локальной конфигурации CLI.
 
     Returns:
-        True если хотя бы одна переменная успешно установлена.
+        True если merge и PUT успешны.
     """
     service_id = state.get("render_service_id")
     if not service_id:
@@ -287,31 +288,80 @@ def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) 
         print(f"  WEBHOOK_SECRET=<секрет>")
         return False
 
-    env_vars = [
-        {"key": "TELEGRAM_BOT_TOKEN", "value": telegram_token},
-        {"key": "WEBHOOK_SECRET", "value": webhook_secret},
-    ]
+    base_url = f"https://api.render.com/v1/services/{service_id}/env-vars"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+    }
 
-    url = f"https://api.render.com/v1/services/{service_id}/env-vars"
-    body = json.dumps(env_vars).encode()
-
+    # 1. GET существующие env vars
+    existing_count = 0
+    existing_map = {}
     try:
-        req = urllib.request.Request(
-            url,
+        get_req = urllib.request.Request(base_url, headers={k: v for k, v in headers.items() if k != "Content-Type"})
+        get_resp = urllib.request.urlopen(get_req, timeout=15)
+        if get_resp.status == 200:
+            raw_body = get_resp.read().decode()
+            try:
+                existing_list = json.loads(raw_body)
+            except json.JSONDecodeError:
+                step_fail("Render API: не удалось разобрать GET ответ env vars.")
+                step_info("Telegram env vars не переданы — merge невозможен.")
+                print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
+                return False
+
+            if not isinstance(existing_list, list):
+                step_fail(f"Render API: ожидался список env vars, получен {type(existing_list).__name__}.")
+                step_info("Telegram env vars не переданы — merge невозможен.")
+                print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
+                return False
+
+            for item in existing_list:
+                if isinstance(item, dict):
+                    key = item.get("key", "")
+                    value = item.get("value", "")
+                    if key:
+                        existing_map[key] = value
+            existing_count = len(existing_map)
+        else:
+            step_fail(f"Render API GET env vars: HTTP {get_resp.status}.")
+            step_info("Telegram env vars не переданы — merge невозможен.")
+            print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
+            return False
+    except urllib.error.HTTPError as e:
+        step_fail(f"Render API GET env vars: HTTP {e.code}.")
+        step_info("Telegram env vars не переданы — merge невозможен.")
+        print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
+        return False
+    except Exception as e:
+        step_fail(f"Render API GET env vars: {e}.")
+        step_info("Telegram env vars не переданы — merge невозможен.")
+        print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
+        return False
+
+    # 2. Merge Telegram vars (overwrite если конфликт)
+    existing_map["TELEGRAM_BOT_TOKEN"] = telegram_token
+    existing_map["WEBHOOK_SECRET"] = webhook_secret
+
+    merged_vars = [{"key": k, "value": v} for k, v in existing_map.items()]
+    step_info(f"Объединено {existing_count} существующих и 2 Telegram переменных ({len(merged_vars)} total).")
+
+    # 3. PUT merged env vars
+    body = json.dumps(merged_vars).encode()
+    try:
+        put_req = urllib.request.Request(
+            base_url,
             data=body,
             method="PUT",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-                "Accept": "application/json",
-            },
+            headers=headers,
         )
-        resp = urllib.request.urlopen(req, timeout=30)
-        if resp.status == 200:
-            step_pass("TELEGRAM_BOT_TOKEN и WEBHOOK_SECRET переданы в Render (REST API).")
+        put_resp = urllib.request.urlopen(put_req, timeout=30)
+        if put_resp.status == 200:
+            step_pass("TELEGRAM_BOT_TOKEN и WEBHOOK_SECRET переданы в Render (REST API, merge).")
             return True
         else:
-            step_info(f"Render API ответил HTTP {resp.status}")
+            step_info(f"Render API PUT ответил HTTP {put_resp.status}")
             return False
     except urllib.error.HTTPError as e:
         body_text = ""
@@ -319,12 +369,13 @@ def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) 
             body_text = e.read().decode()[:300]
         except Exception:
             pass
-        step_fail(f"Render API: HTTP {e.code} — {body_text}")
-        print(f"  Установите env vars вручную: https://dashboard.render.com/web/{service_id}/env")
+        # Не выводим тело ответа — может содержать значение токена
+        step_fail(f"Render API PUT env vars: HTTP {e.code}.")
+        print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
         return False
     except Exception as e:
-        step_fail(f"Render API недоступен: {e}")
-        print(f"  Установите env vars вручную: https://dashboard.render.com/web/{service_id}/env")
+        step_fail(f"Render API PUT env vars: {e}.")
+        print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
         return False
 
 

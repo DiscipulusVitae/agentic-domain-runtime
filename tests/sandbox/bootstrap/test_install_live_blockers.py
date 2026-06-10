@@ -22,21 +22,24 @@ class TestBlockerTelegramNoTokenInArgv:
     """Blocker 1: TELEGRAM_BOT_TOKEN не появляется в argv subprocess."""
 
     def test_env_vars_uses_rest_api_not_cli_argv(self, monkeypatch):
-        """_set_render_env_vars должен использовать REST API, не CLI argv."""
+        """_set_render_env_vars должен использовать REST API (GET → merge → PUT), не CLI argv."""
         state = {"render_service_id": "srv-abc123"}
-        # Оборачиваем urlopen чтобы перехватить HTTP-запрос
         calls = []
+
+        get_body = json.dumps([
+            {"key": "SUPABASE_URL", "value": "https://db.co"},
+        ]).encode()
 
         def fake_urlopen(req, timeout=None):
             calls.append(req)
-            # Возвращаем fake 200 ответ
             resp = MagicMock()
             resp.status = 200
-            resp.__enter__ = MagicMock(return_value=resp)
-            resp.__exit__ = MagicMock(return_value=False)
+            if len(calls) == 1:
+                resp.read.return_value = get_body
+            else:
+                resp.read.return_value = b"[]"
             return resp
 
-        # Мокаем discover_render_api_key
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
             lambda: "rk_test_fake",
@@ -46,15 +49,16 @@ class TestBlockerTelegramNoTokenInArgv:
             result = _set_render_env_vars(state, "fake-token-123", "secret-456")
 
         assert result is True
-        assert len(calls) == 1
-        req = calls[0]
-        # Тело запроса должно содержать токен (это HTTP body, не argv)
-        body = json.loads(req.data.decode())
-        env_keys = [v["key"] for v in body]
-        assert "TELEGRAM_BOT_TOKEN" in env_keys
-        assert "WEBHOOK_SECRET" in env_keys
-        # Authorization header должен быть Bearer
-        assert req.get_header("Authorization") == "Bearer rk_test_fake"
+        assert len(calls) == 2
+        assert calls[0].get_method() == "GET"
+        assert calls[1].get_method() == "PUT"
+
+        put_body = json.loads(calls[1].data.decode())
+        put_keys = {v["key"] for v in put_body}
+        assert "SUPABASE_URL" in put_keys
+        assert "TELEGRAM_BOT_TOKEN" in put_keys
+        assert "WEBHOOK_SECRET" in put_keys
+        assert calls[1].get_header("Authorization") == "Bearer rk_test_fake"
 
     def test_no_token_in_command_construction(self):
         """В коде install_live_telegram не должно быть subprocess-вызовов с токеном в аргументах."""
@@ -649,6 +653,9 @@ class TestStaleSkipFlags:
                             with patch("time.sleep", lambda s: None):
                                 resp = MagicMock()
                                 resp.status = 200
+                                resp.read.return_value = json.dumps([
+                                    {"key": "SUPABASE_URL", "value": "https://db.co"},
+                                ]).encode()
                                 mock_open.return_value = resp
                                 run_telegram_phase(MagicMock(), state)
 

@@ -1,6 +1,8 @@
 """Тесты для incident follow-up guards: token source, state reuse, identity."""
 import json
 import os
+import urllib
+import urllib.error
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +13,7 @@ from src.sandbox.bootstrap.commands.install_live import (
 )
 from src.sandbox.bootstrap.commands.install_live_telegram import (
     run_telegram_phase,
+    _set_render_env_vars,
 )
 from src.sandbox.bootstrap.commands.install_live_supabase import (
     run_supabase_phase,
@@ -463,3 +466,121 @@ class TestIdentityConfirmation:
 
         assert exc_info.value.code == 1
         assert len(create_calls) == 0  # не дошло до создания сервиса
+
+
+class TestRenderEnvMerge:
+    """T307.1: Render env-var merge (GET → merge → PUT)."""
+
+    def _setup_merge_mock(self, monkeypatch, existing_vars, mute_output=True):
+        """Общий setup: мокает Render API GET/PUT с существующими vars."""
+        captured_reqs = []
+        get_body = json.dumps(existing_vars).encode()
+
+        def fake_urlopen(req, timeout=None):
+            captured_reqs.append(req)
+            resp = MagicMock()
+            resp.status = 200
+            resp.read.return_value = get_body if captured_reqs[0] is req else b"[]"
+            return resp
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
+            lambda: "rk_test_fake",
+        )
+        if mute_output:
+            for attr in ["step_info", "step_pass", "step_fail"]:
+                monkeypatch.setattr(
+                    f"src.sandbox.bootstrap.commands.install_live_telegram.{attr}",
+                    lambda msg: None,
+                )
+        return captured_reqs
+
+    def test_merge_supabase_env_survives(self, monkeypatch):
+        """GET Supabase vars → merge не ломается."""
+        self._setup_merge_mock(monkeypatch, [{"key": "SUPABASE_URL", "value": "x"}])
+        result = _set_render_env_vars({"render_service_id": "srv-abc123"}, "tg", "ws")
+        assert result is True
+
+    def test_merge_preserves_supabase_vars(self, monkeypatch):
+        """PUT содержит Supabase vars + Telegram vars."""
+        existing = [
+            {"key": "SUPABASE_URL", "value": "https://db.supabase.co"},
+            {"key": "SUPABASE_ANON_KEY", "value": "key123"},
+            {"key": "ADR_PERSISTENCE", "value": "supabase"},
+        ]
+        captured = self._setup_merge_mock(monkeypatch, existing)
+        result = _set_render_env_vars({"render_service_id": "srv-abc123"}, "tg-token-999", "ws-secret-999")
+        assert result is True
+        assert len(captured) == 2
+        assert captured[0].get_method() == "GET"
+        assert captured[1].get_method() == "PUT"
+        put_keys = {v["key"]: v["value"] for v in json.loads(captured[1].data.decode())}
+        assert put_keys.get("SUPABASE_URL") == "https://db.supabase.co"
+        assert put_keys.get("TELEGRAM_BOT_TOKEN") == "tg-token-999"
+
+    def test_telegram_vars_overwrite_existing(self, monkeypatch):
+        """Telegram vars перезаписывают существующие."""
+        captured = self._setup_merge_mock(monkeypatch, [
+            {"key": "TELEGRAM_BOT_TOKEN", "value": "old"},
+            {"key": "SUPABASE_URL", "value": "https://db.co"},
+        ])
+        result = _set_render_env_vars({"render_service_id": "srv-abc123"}, "new", "new-ws")
+        assert result is True
+        put_keys = {v["key"]: v["value"] for v in json.loads(captured[1].data.decode())}
+        assert put_keys["TELEGRAM_BOT_TOKEN"] == "new"
+        assert put_keys["SUPABASE_URL"] == "https://db.co"
+        assert "old" not in put_keys.values()
+
+    def test_get_failure_prevents_put(self, monkeypatch):
+        """GET failure → PUT не вызывается."""
+        captured = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
+            lambda: "rk_test_fake",
+        )
+        for attr in ["step_info", "step_fail"]:
+            monkeypatch.setattr(
+                f"src.sandbox.bootstrap.commands.install_live_telegram.{attr}", lambda m: None,
+            )
+
+        class FH(urllib.error.HTTPError):
+            def read(self): return b'{"error":"fail"}'
+
+        def fake_urlopen(req, timeout=None):
+            captured.append(req)
+            raise FH(url=req.full_url, code=500, msg="err", hdrs=MagicMock(), fp=MagicMock())
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        result = _set_render_env_vars({"render_service_id": "srv-abc123"}, "tg", "ws")
+        assert result is False
+        assert len(captured) == 1
+        assert captured[0].get_method() == "GET"
+
+    def test_malformed_get_prevents_put(self, monkeypatch):
+        """GET возвращает не-список → PUT не вызывается."""
+        captured = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
+            lambda: "rk_test_fake",
+        )
+        for attr in ["step_info", "step_fail"]:
+            monkeypatch.setattr(
+                f"src.sandbox.bootstrap.commands.install_live_telegram.{attr}", lambda m: None,
+            )
+        def fake_urlopen(req, timeout=None):
+            captured.append(req)
+            resp = MagicMock(); resp.status = 200; resp.read.return_value = b'{"not":"list"}'
+            return resp
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        result = _set_render_env_vars({"render_service_id": "srv-abc123"}, "tg", "ws")
+        assert result is False
+        assert len(captured) == 1
+
+    def test_secret_not_in_stdout(self, monkeypatch, capsys):
+        """Значения токена/секрета не выводятся."""
+        self._setup_merge_mock(monkeypatch, [{"key": "SUPABASE_URL", "value": "x"}], mute_output=False)
+        _set_render_env_vars({"render_service_id": "srv-abc123"}, "TG_SECRET_123", "WS_SECRET_456")
+        captured = capsys.readouterr()
+        assert "TG_SECRET_123" not in captured.out
+        assert "WS_SECRET_456" not in captured.out
