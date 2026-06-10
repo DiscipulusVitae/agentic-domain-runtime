@@ -243,7 +243,7 @@ def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) 
     if not api_key:
         step_info("Render API key не найден — env vars не установлены.")
         step_info("Установите переменные вручную в Render Dashboard:")
-        print(f"  Dashboard: https://dashboard.render.com/web/srv-{service_id}/env")
+        print(f"  Dashboard: https://dashboard.render.com/web/{service_id}/env")
         print(f"  TELEGRAM_BOT_TOKEN=<токен>")
         print(f"  WEBHOOK_SECRET=<секрет>")
         return False
@@ -281,11 +281,11 @@ def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) 
         except Exception:
             pass
         step_fail(f"Render API: HTTP {e.code} — {body_text}")
-        print(f"  Установите env vars вручную: https://dashboard.render.com/web/srv-{service_id}/env")
+        print(f"  Установите env vars вручную: https://dashboard.render.com/web/{service_id}/env")
         return False
     except Exception as e:
         step_fail(f"Render API недоступен: {e}")
-        print(f"  Установите env vars вручную: https://dashboard.render.com/web/srv-{service_id}/env")
+        print(f"  Установите env vars вручную: https://dashboard.render.com/web/{service_id}/env")
         return False
 
 

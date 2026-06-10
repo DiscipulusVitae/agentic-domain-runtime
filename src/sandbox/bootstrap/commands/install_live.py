@@ -203,7 +203,7 @@ def _print_summary(plan, state: dict) -> None:
     if state.get("render_service_id"):
         sid = state['render_service_id']
         print(f"  # Удалить Render сервис:")
-        print(f"  # Dashboard: https://dashboard.render.com/web/srv-{sid}/settings")
+        print(f"  # Dashboard: https://dashboard.render.com/web/{sid}/settings")
         print(f"  # REST API:  curl -X DELETE https://api.render.com/v1/services/{sid}")
         print()
 

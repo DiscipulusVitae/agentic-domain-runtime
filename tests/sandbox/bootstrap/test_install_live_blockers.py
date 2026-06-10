@@ -156,17 +156,31 @@ class TestBlockerTelegramFailSafe:
 class TestRenderApiKeyDiscovery:
     """discover_render_api_key — вспомогательные тесты."""
 
-    def test_returns_none_when_not_found(self, monkeypatch):
+    def test_returns_none_when_not_found(self, monkeypatch, tmp_path):
         """Без Render CLI возвращает None."""
         monkeypatch.delenv("RENDER_API_KEY", raising=False)
+        # Все expanduser ведут на временную директорию, где нет cli.yaml
+        monkeypatch.setattr("os.path.expanduser", lambda p: str(tmp_path / "nonexistent" / "file"))
         result = discover_render_api_key()
         assert result is None
 
-    def test_finds_from_env_var(self, monkeypatch):
+    def test_finds_from_env_var(self, monkeypatch, tmp_path):
         """Находит ключ из RENDER_API_KEY."""
         monkeypatch.setenv("RENDER_API_KEY", "rk_env_test123")
+        monkeypatch.setattr("os.path.expanduser", lambda p: str(tmp_path / "no" / "file"))
         result = discover_render_api_key()
         assert result == "rk_env_test123"
+
+    def test_finds_from_cli_yaml(self, tmp_path, monkeypatch):
+        """Находит ключ из ~/.render/cli.yaml (Render CLI v2.20+)."""
+        yaml_dir = tmp_path / ".render"
+        yaml_dir.mkdir()
+        yaml_file = yaml_dir / "cli.yaml"
+        yaml_file.write_text("version: 1\napi:\n  key: rk_yaml_test\n  host: https://api.render.com/v1/\n")
+        monkeypatch.setattr("os.path.expanduser", lambda p: str(yaml_file) if "cli.yaml" in p else p)
+        monkeypatch.delenv("RENDER_API_KEY", raising=False)
+        result = discover_render_api_key()
+        assert result == "rk_yaml_test"
 
 
 class TestCliLoginUx:

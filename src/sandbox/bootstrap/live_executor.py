@@ -184,6 +184,7 @@ def discover_render_api_key() -> str | None:
     """Ищет Render API key в локальной конфигурации CLI.
 
     Render CLI после 'render login' сохраняет токен в одном из путей:
+      - ~/.render/cli.yaml (основной, YAML, поле api.key)
       - ~/.render/api-key
       - ~/.config/render/auth.json
       - Переменная окружения RENDER_API_KEY
@@ -194,6 +195,18 @@ def discover_render_api_key() -> str | None:
     if env_key:
         return env_key.strip()
 
+    # ~/.render/cli.yaml (Render CLI v2.20+)
+    yaml_file = os.path.expanduser("~/.render/cli.yaml")
+    try:
+        with open(yaml_file, "r") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped.startswith("key:"):
+                    return stripped[4:].strip().strip('"').strip("'")
+    except OSError:
+        pass
+
+    # ~/.render/api-key
     key_file = os.path.expanduser("~/.render/api-key")
     try:
         with open(key_file, "r") as f:
@@ -203,6 +216,7 @@ def discover_render_api_key() -> str | None:
     except OSError:
         pass
 
+    # ~/.config/render/auth.json
     auth_file = os.path.expanduser("~/.config/render/auth.json")
     try:
         with open(auth_file, "r") as f:

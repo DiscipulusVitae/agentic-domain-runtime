@@ -211,7 +211,7 @@ def run_render_phase(plan, state: dict) -> None:
     if service_url:
         print()
         step_info("Ожидание деплоя (может занять 2-5 минут)...")
-        step_info(f"Проверьте статус: https://dashboard.render.com/web/srv-{service_id}")
+        step_info(f"Проверьте статус: https://dashboard.render.com/web/{service_id}")
 
         health_url = f"{service_url}/health" if not service_url.endswith("/") else f"{service_url}health"
 

@@ -113,7 +113,7 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             cleanup_results["render"] = "deleted"
         else:
             step_fail(f"Не удалось удалить Render сервис {mask(sid)}.")
-            print(f"  Dashboard: https://dashboard.render.com/web/srv-{sid}/settings")
+            print(f"  Dashboard: https://dashboard.render.com/web/{sid}/settings")
             print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
             cleanup_results["render"] = "failed"
 
