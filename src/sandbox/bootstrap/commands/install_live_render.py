@@ -103,15 +103,16 @@ def run_render_phase(plan, state: dict) -> None:
         if list_result["ok"]:
             try:
                 services = json.loads(list_result["stdout"])
-                for s in services:
-                    svc = s.get("service", s)
-                    if svc.get("name") == service_name:
-                        service_id = svc.get("id", "")
-                        service_url = svc.get("url", "")
-                        state["render_service_id"] = service_id
-                        state["render_service_url"] = service_url
-                        step_pass(f"Найден существующий сервис: {service_url or mask(service_id)}")
-                        break
+                if services:
+                    for s in services:
+                        svc = s.get("service", s)
+                        if svc.get("name") == service_name:
+                            service_id = svc.get("id", "")
+                            service_url = svc.get("url", "")
+                            state["render_service_id"] = service_id
+                            state["render_service_url"] = service_url
+                            step_pass(f"Найден существующий сервис: {service_url or mask(service_id)}")
+                            break
             except json.JSONDecodeError:
                 pass
 
@@ -171,14 +172,15 @@ def run_render_phase(plan, state: dict) -> None:
                     if list_result2["ok"]:
                         try:
                             services = json.loads(list_result2["stdout"])
-                            for s in services:
-                                svc = s.get("service", s)
-                                if svc.get("name") == service_name:
-                                    service_id = svc.get("id", "")
-                                    service_url = svc.get("url", "")
-                                    state["render_service_id"] = service_id
-                                    state["render_service_url"] = service_url
-                                    step_pass(f"Найден существующий сервис: {service_url}")
+                            if services:
+                                for s in services:
+                                    svc = s.get("service", s)
+                                    if svc.get("name") == service_name:
+                                        service_id = svc.get("id", "")
+                                        service_url = svc.get("url", "")
+                                        state["render_service_id"] = service_id
+                                        state["render_service_url"] = service_url
+                                        step_pass(f"Найден существующий сервис: {service_url}")
                                     break
                         except json.JSONDecodeError:
                             pass
