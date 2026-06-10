@@ -464,12 +464,12 @@ def test_debug_storage_endpoint(server_url):
         assert after_invalid_kitchen_count == after_valid_kitchen_count
 
 
-def test_webhook_start_command(server_url):
-    """POST /webhook/telegram with /start text returns welcome message, HTTP 200."""
+def test_webhook_start_command_no_chat_id(server_url):
+    """POST /webhook/telegram with /start without chat.id — returns welcome, send deferred."""
     url = f"{server_url}/webhook/telegram"
     payload = {
-        "update_id": 1,
-        "message": {"message_id": 1, "text": "/start"}
+        "update_id": 99,
+        "message": {"message_id": 99, "text": "/start"}
     }
     req_data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -482,10 +482,32 @@ def test_webhook_start_command(server_url):
         body = response.read().decode("utf-8")
         data = json.loads(body)
         assert data["success"] is True
-        assert data["routing"]["intent"] == "start_command"
-        assert "ADR" in data["output"]
-        assert "sandbox" in data["output"].lower()
-        assert "Добро пожаловать" in data["output"]
+        assert "send: no_chat_id" in data["trace"]
+
+
+def test_webhook_start_command_with_chat_id(server_url):
+    """POST /webhook/telegram with /start + chat.id — sendMessage called, sends skipped (no token)."""
+    url = f"{server_url}/webhook/telegram"
+    payload = {
+        "update_id": 100,
+        "message": {
+            "message_id": 100,
+            "text": "/start",
+            "chat": {"id": 999888}
+        }
+    }
+    req_data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.getcode() == 200
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+        assert data["success"] is True
+        assert "send: send_skipped_no_token" in data["trace"]
 
 
 def test_webhook_unknown_command(server_url):

@@ -126,7 +126,7 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             print(f"  curl -X POST https://api.telegram.org/bot<TOKEN>/deleteWebhook")
             cleanup_results["webhook"] = "manual_required"
 
-    # Step 2: Render
+    # Step 2: Render (must succeed before Supabase deletion)
     if service_id:
         step_header(2, 4, "Render сервис")
         sid = state["render_service_id"]
@@ -141,8 +141,9 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
             cleanup_results["render"] = "failed"
 
-    # Step 3: Supabase
-    if project_ref:
+    # Step 3: Supabase (только если Render удалён или не было Render)
+    render_failed = cleanup_results.get("render") == "failed"
+    if project_ref and not render_failed:
         step_header(3, 4, "Supabase проект")
         if _delete_supabase_project(project_ref):
             step_pass(f"Supabase проект {mask(project_ref)} удалён.")
@@ -153,6 +154,11 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             print(f"  Ручная команда:")
             print(f"  supabase projects delete {project_ref} --yes")
             cleanup_results["supabase"] = "failed"
+    elif project_ref and render_failed:
+        step_header(3, 4, "Supabase проект")
+        step_skip("Render не удалён — Supabase сохранён для целостности.")
+        print("  Render сервис зависит от Supabase DB. Supabase не удалён.")
+        cleanup_results["supabase"] = "skipped_render_failed"
 
     # Step 4: State file (conditional)
     step_header(4, 4, "Локальное состояние")
@@ -180,7 +186,8 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
     print()
     print("--- Итоги очистки ---")
     for resource, status in cleanup_results.items():
-        label_map = {"deleted": "удалён", "failed": "НЕ удалён", "manual_required": "требует ручного удаления"}
+        label_map = {"deleted": "удалён", "failed": "НЕ удалён", "manual_required": "требует ручного удаления",
+                     "skipped_render_failed": "пропущен (Render не удалён)"}
         label = label_map.get(status, status)
         print(f"  {resource:<15} {label}")
 

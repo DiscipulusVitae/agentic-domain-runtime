@@ -164,7 +164,8 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
             stripped_text = text.strip()
 
             if stripped_text == "/start":
-                self._send_start_response()
+                chat_id = message.get("chat", {}).get("id")
+                self._send_start_response(chat_id)
                 return
 
             if stripped_text.startswith("/"):
@@ -194,7 +195,21 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
         response = {"error": message}
         self.wfile.write(json.dumps(response).encode("utf-8"))
 
-    def _send_start_response(self):
+    def _send_start_response(self, chat_id=None):
+        start_text = (
+            "Добро пожаловать! Это sandbox/demo бот ADR (agentic-domain-runtime).\n"
+            "---\n"
+            "Я могу обработать короткий текст и показать демо-маршрутизацию по доменам:\n"
+            "  - Добавь рецепт борща — кулинарный ассистент\n"
+            "  - Добавь книгу Оруэлл 1984 — библиотекарь\n"
+            "  - Запиши давление 120 на 80 — ассистент здоровья\n"
+            "\n"
+            "Это reviewer sandbox на синтетических данных. "
+            "Production и личные данные не нужны."
+        )
+
+        send_status = _try_send_telegram_message(chat_id, start_text) if chat_id else "no_chat_id"
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -208,19 +223,9 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
                 "requires_clarification": False,
                 "clarification_question": None,
             },
-            "trace": "[routing: start_command]",
+            "trace": f"[routing: start_command] [send: {send_status}]",
             "success": True,
-            "output": (
-                "Добро пожаловать! Это sandbox/demo бот ADR (agentic-domain-runtime).\n"
-                "---\n"
-                "Я могу обработать короткий текст и показать демо-маршрутизацию по доменам:\n"
-                "  - Добавь рецепт борща — кулинарный ассистент\n"
-                "  - Добавь книгу Оруэлл 1984 — библиотекарь\n"
-                "  - Запиши давление 120 на 80 — ассистент здоровья\n"
-                "\n"
-                "Это reviewer sandbox на синтетических данных. "
-                "Production и личные данные не нужны."
-            ),
+            "output": start_text,
             "display_name": "ADR Sandbox Bot",
         }
         self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
@@ -245,6 +250,38 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
             "display_name": None,
         }
         self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+
+
+def _try_send_telegram_message(chat_id, text) -> str:
+    """Пытается отправить сообщение через Telegram Bot API.
+
+    Без live токена — возвращает send_deferred/send_skipped.
+    С токеном — делает HTTP POST к sendMessage.
+    Возвращает строку статуса для trace.
+    """
+    import os
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return "send_skipped_no_token"
+
+    try:
+        payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.getcode() == 200:
+                return "send_ok"
+            return f"send_failed_http_{resp.getcode()}"
+    except urllib.error.URLError:
+        return "send_deferred_network_unavailable"
+    except Exception as e:
+        return f"send_deferred_{type(e).__name__}"
 
 
 def serve(host: str, port: int):

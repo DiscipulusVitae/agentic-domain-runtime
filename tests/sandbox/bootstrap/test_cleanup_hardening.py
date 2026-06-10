@@ -151,8 +151,8 @@ class TestCleanupPartialFailure:
         assert "render_service_id" not in final_state
         assert "supabase_project_ref" not in final_state
 
-    def test_render_failure_does_not_block_supabase(self, monkeypatch):
-        """Отказ Render: webhook перед ним не затрагивается, Supabase после — удаляется."""
+    def test_render_failure_skips_supabase(self, monkeypatch):
+        """Отказ Render: Supabase не удаляется, оба остаются в state."""
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
             lambda: True,
@@ -177,7 +177,7 @@ class TestCleanupPartialFailure:
 
         def track_delete_render(sid):
             cleanup_calls.append("render")
-            return False
+            return False  # render fails!
 
         def track_delete_supabase(ref):
             cleanup_calls.append("supabase")
@@ -196,6 +196,10 @@ class TestCleanupPartialFailure:
             track_delete_supabase,
         )
 
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
         state = {
             "webhook_set": True,
             "render_service_id": "srv-abc",
@@ -203,11 +207,78 @@ class TestCleanupPartialFailure:
         }
         with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
                    return_value=dict(state)):
-            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state"):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1  # partial failure
+        assert cleanup_calls == ["webhook", "render"]  # supabase not called!**
+        # Оба остаются в state
+        assert "render_service_id" in final_state
+        assert "supabase_project_ref" in final_state
+
+    def test_render_success_supabase_failure(self, monkeypatch):
+        """Render удалён успешно, Supabase отказ: Render pop, Supabase остаётся."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask",
+            lambda *a, **kw: "",
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._get_telegram_token_interactive",
+            lambda: "fake-token",
+        )
+
+        cleanup_calls = []
+        def track_delete_webhook(token):
+            cleanup_calls.append("webhook")
+            return True
+
+        def track_delete_render(sid):
+            cleanup_calls.append("render")
+            return True
+
+        def track_delete_supabase(ref):
+            cleanup_calls.append("supabase")
+            return False
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_webhook",
+            track_delete_webhook,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            track_delete_render,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            track_delete_supabase,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {
+            "webhook_set": True,
+            "render_service_id": "srv-abc",
+            "supabase_project_ref": "ref-xyz",
+        }
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
                 result = run_live_cleanup(preview=False, json_mode=False)
 
         assert result == 1
         assert cleanup_calls == ["webhook", "render", "supabase"]
+        assert "render_service_id" not in final_state
+        assert "supabase_project_ref" in final_state
 
 
 class TestCleanupIdempotency:
@@ -261,6 +332,58 @@ class TestCleanupIdempotency:
 
         assert result == 0
         assert deleted == ["webhook"]
+
+    def test_retry_after_render_failure_retries_both(self, monkeypatch):
+        """После Render failure retry пробует оба: Render и Supabase."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask",
+            lambda *a, **kw: "",
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._get_telegram_token_interactive",
+            lambda: "fake-token",
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_webhook",
+            lambda token: True,
+        )
+
+        calls = []
+        def track_delete_render(sid):
+            calls.append("render")
+            return True
+
+        def track_delete_supabase(ref):
+            calls.append("supabase")
+            return True
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            track_delete_render,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            track_delete_supabase,
+        )
+
+        # State после Render failure в первом прогоне: webhook уже удалён
+        state = {"render_service_id": "srv-abc", "supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state"):
+                with patch("src.sandbox.bootstrap.commands.install_live_cleanup.Path.unlink"):
+                    result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 0
+        assert calls == ["render", "supabase"]
 
 
 class TestCleanupPreviewJson:
