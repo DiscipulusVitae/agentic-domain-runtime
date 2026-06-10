@@ -31,6 +31,8 @@ To ensure compliance with strict privacy and safety guidelines, the public slice
 
 ## Reviewer Paths
 
+Для быстрого старта: **[START_HERE.md](START_HERE.md)** — три пути за 30 секунд.
+
 The codebase supports three verification paths for technical reviewers:
 1. **Docker Reviewer Path (Primary & Recommended)**: A fully sandboxed, safe offline environment. Requires no secrets, local Python setup, or host modifications.
 2. **Native Ubuntu 26.04 Path (Secondary & Debug)**: Runs checks, tests, and scenarios natively. Requires Python 3.13 and `uv`.
@@ -38,12 +40,17 @@ The codebase supports three verification paths for technical reviewers:
 
 Additionally, a cloud bootstrap path has been proven on disposable resources. See **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** — Path C.
 
-## Milestone Status & Roadmap
+## Milestone Status
 
-The development of the system's infrastructure configuration and setup wizard is split into phases:
-* **Phase 4: Bootstrap Safe Path (Current Milestone - COMPLETE)**: Focuses on establishing a comprehensive, local-first review environment. All dependency preflight checks, resource topology planning, local Supabase plan configurations, and Telegram webhook readiness validations run entirely in dry-run/offline sandbox mode, requiring zero secrets or cloud resources.
-* **Phase 5: Live Apply (Incremental Proof Gates)**: Live cloud mutations are not part of the default reviewer path, but key proof gates have been exercised with disposable resources: Render `/health`, Telegram webhook delivery, Supabase schema smoke, Supabase organization onboarding, and a combined Supabase + Render DB-backed `/health` proof with full cleanup. See **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** (Path C) and **[Supabase + Render Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
-* **Operator Cleanroom (Required for Live Gates)**: Defines the clean deployment shell and account-verification gate required before any live cloud/API mutation. See **[Operator Cleanroom](docs/OPERATOR_CLEANROOM.md)**.
+| Что | Статус |
+|:---|:---|
+| Offline sandbox + Docker reviewer path | работает |
+| Local Supabase (схема, RLS, smoke.sql) | работает |
+| `bootstrap install --dry-run` (preview/checklist) | работает |
+| Cloud proof (Supabase + Render + Telegram, ручной runbook) | доказан на disposable resources |
+| `bootstrap install` live wizard (без `--dry-run`) | в разработке |
+
+Live cloud mutations не входят в дефолтный reviewer path. Ключевые proof gates (Render `/health`, Telegram webhook, Supabase schema smoke, combined Supabase + Render DB-backed `/health`) пройдены на disposable ресурсах с полным cleanup. См. **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** (Path C) и **[Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
 
 ## Quickstart
 
@@ -200,8 +207,8 @@ supabase stop
 
 ## Reviewer Navigation Map
 
-To quickly evaluate the codebase, follow these key architectural maps and evidence documents:
-- **[Reviewer Guide](docs/REVIEWER_GUIDE.md)**: Единая точка входа — три пути проверки: офлайн sandbox, локальный Supabase, cloud bootstrap.
+- **[START HERE](START_HERE.md)**: 30-секундная ориентация — три пути.
+- **[Reviewer Guide](docs/REVIEWER_GUIDE.md)**: Подробная пошаговая инструкция по каждому пути.
 - **[Live Apply Design Spec](docs/LIVE_APPLY_DESIGN.md)**: Architecture blueprint, state transitions, security boundaries, and rollback plans for the future live deployment horizon.
 - **[First Live GO Package](docs/FIRST_LIVE_GO_PACKAGE.md)**: Minimal Telegram-only live mutation package prepared for explicit human GO review.
 - **[Supabase + Render Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**: Current reviewer/deployer flow for Supabase schema smoke and the next DB-backed Render readiness prerequisite.
