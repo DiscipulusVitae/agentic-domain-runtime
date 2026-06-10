@@ -200,6 +200,9 @@ def run_render_phase(plan, state: dict) -> None:
                     save_state(state)
                     return
     else:
+        if not service_url:
+            service_url = f"https://{plan.render_web_service_name}.onrender.com"
+            state["render_service_url"] = service_url
         step_pass(f"Сервис: {service_url or mask(service_id)} (из сохранённого состояния)")
 
     save_state(state)
