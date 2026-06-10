@@ -221,6 +221,7 @@ async def async_main() -> None:
 
         install_parser = subparsers.add_parser("install", help="Запустить мастер установки (install wizard)")
         install_parser.add_argument("--dry-run", action="store_true", help="Показать процесс установки без реальных изменений")
+        install_parser.add_argument("--yes", action="store_true", help="Явное согласие на live-режим (создание облачных ресурсов)")
         install_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
         checks_parser = subparsers.add_parser("checks", help="Выполнить read-only readiness проверки")
@@ -263,7 +264,7 @@ async def async_main() -> None:
 
         args = bootstrap_parser.parse_args(sys.argv[2:])
 
-        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_checks, run_operator_cleanroom, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state, run_bootstrap_simulate, run_cleanup
+        from src.sandbox.bootstrap import run_doctor, run_plan, run_apply, run_smoke, run_install, run_install_live, run_checks, run_operator_cleanroom, run_supabase_bootstrap, run_telegram_bootstrap, run_bootstrap_state, run_bootstrap_simulate, run_cleanup
         if args.bootstrap_cmd == "doctor":
             sys.exit(run_doctor(json_mode=args.json))
         elif args.bootstrap_cmd == "plan":
@@ -284,8 +285,11 @@ async def async_main() -> None:
                 bootstrap_parser.error("Команда smoke требует указания флага --dry-run в текущей версии.")
             sys.exit(run_smoke(dry_run=args.dry_run, json_mode=args.json))
         elif args.bootstrap_cmd == "install":
+            if args.yes:
+                # Live-режим: запускаем guided wizard с мутациями
+                sys.exit(run_install_live(json_mode=args.json))
             if not args.dry_run:
-                bootstrap_parser.error("Команда install требует указания флага --dry-run в текущей версии.")
+                bootstrap_parser.error("Команда install требует указания флага --dry-run или --yes для live-режима.")
             sys.exit(run_install(dry_run=args.dry_run, json_mode=args.json))
         elif args.bootstrap_cmd == "checks":
             if not args.read_only:
