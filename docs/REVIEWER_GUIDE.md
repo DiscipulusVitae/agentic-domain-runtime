@@ -307,6 +307,65 @@ For reviewers analyzing our PostgreSQL/Supabase boundaries:
 
 ---
 
+## Path C: Cloud Bootstrap (Proven, Human-Authorized)
+
+The system has been proven deployable on disposable cloud resources (Supabase + Render). This path documents what was proven and how a reviewer could reproduce it.
+
+### Model
+
+- Disposable resources only (free tier), with explicit cleanup.
+- Reviewer/test accounts separate from production.
+- Every mutating action gated by explicit human GO.
+- All actions through official CLI/API (Supabase CLI, Render CLI, Render REST API).
+
+### What Was Proven (T293–T299)
+
+Three independent proof layers:
+
+| Proof | Result | Tool |
+|:---|:---|:---|
+| Remote DB schema smoke | 26/26 checks passed | `supabase db push` + `smoke.sql` |
+| DB-backed `/health` readiness | HTTP 200, `persistence=supabase` | Render HTTPS |
+| Telegram webhook delivery | Webhook set, delivered, cleaned | Bot API `setWebhook` |
+
+Each layer can be exercised independently.
+
+### Key Operational Findings
+
+Documented in detail in **[Supabase + Render Wiring Runbook](SUPABASE_RENDER_WIRING_RUNBOOK.md)**:
+
+1. Docker cleanroom needs `xdg-utils` for `render login` browser device-code flow.
+2. `supabase config push` required to expose non-public schemas (`core`, `kitchen`, `books`, `med`, `api`) in remote PostgREST — otherwise REST API returns HTTP 406.
+3. Render service cleanup uses REST API (`DELETE /v1/services/{id}`) — Render CLI does not expose a native delete command.
+4. Free-tier Render with Docker runtime does not require a credit card.
+5. Remote `smoke.sql` and DB-backed `/health` are different proof layers and should not be conflated.
+
+### Illustrative Sequence
+
+```text
+Supabase:
+  supabase login
+  supabase projects create <label> --region eu-central-1
+  supabase link --project-ref <ref>
+  supabase db push
+  supabase config push
+  supabase db query --linked --file supabase/seed.sql
+  supabase db query --linked --file supabase/smoke.sql
+
+Render:
+  render login
+  render services create <label> --runtime docker --plan free
+  curl https://<service>.onrender.com/health
+
+Cleanup:
+  DELETE /v1/services/{id}
+  supabase projects delete <ref> --yes
+```
+
+> This sequence is illustrative. Real proof always proceeds under explicit human GO with stop conditions for auth, billing, wrong account, or destructive actions outside disposable resources.
+
+---
+
 ## Publication Gates
 
 Before any public push, the checkout must pass:

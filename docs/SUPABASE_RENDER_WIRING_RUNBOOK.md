@@ -2,7 +2,7 @@
 
 This document captures the current reviewer/deployer path for wiring a public-safe Supabase project to a temporary Render runtime.
 
-Status: **proof package prepared; combined DB-backed Render readiness seam is implemented**.
+Status: **proven on disposable reviewer/test resources with full cleanup (T299)**.
 
 The repository has already proven these live boundaries separately:
 
@@ -80,11 +80,31 @@ Inside the operator cleanroom, copy or clone the public repository, then:
 ```bash
 supabase link --project-ref <reviewer_project_ref>
 supabase db push
+supabase config push                 # expose schemas in PostgREST (see below)
 supabase db query --linked --file supabase/seed.sql
 supabase db query --linked --file supabase/smoke.sql
 ```
 
 Remote `supabase db push` applies migrations but does not apply `seed.sql`. Apply `seed.sql` explicitly before `smoke.sql`, because `smoke.sql` validates synthetic seed counts.
+
+### PostgREST Schema Exposure
+
+By default, remote Supabase PostgREST exposes only `public` and `graphql_public` schemas. If the runtime health check queries non-public schemas (e.g. `core`, `kitchen`), the REST API returns HTTP 406:
+
+```json
+{"code":"PGRST106","message":"Invalid schema: core",
+ "hint":"Only the following schemas are exposed: public, graphql_public"}
+```
+
+Expose the required schemas via `supabase config push`, which pushes the full local `supabase/config.toml` to the remote project. The relevant section:
+
+```toml
+[api]
+schemas = ["public", "core", "kitchen", "books", "med", "api", "graphql_public"]
+extra_search_path = ["public", "core", "extensions"]
+```
+
+> **Caveat:** `supabase config push` applies the entire config, including auth settings. It is acceptable for reviewer-path proof but not an automatic production migration pattern without review.
 
 Expected smoke result:
 
@@ -99,6 +119,13 @@ Expected smoke result:
 ## Render Wiring Boundary
 
 Render service creation and Supabase env injection must also happen from a clean operator/deployer environment.
+
+When using Docker as a cleanroom:
+- Install `xdg-utils` in the container for `render login` browser device-code flow:
+  ```bash
+  apt-get install -y xdg-utils
+  ```
+- Free-tier Render with Docker runtime does not require a credit card (`--plan free`).
 
 The temporary Render service may receive only reviewer/test Supabase values for this proof. Never wire private production Supabase values into the public ADR runtime.
 
@@ -175,9 +202,7 @@ The readiness seam reads the following environment variables:
   - `database.reachable`: `true`
   - `database.schema_smoke`: `"ok"`
 
-> [!IMPORTANT]
-> **Live Combined Proof Gate**
-> Although the readiness seam is fully implemented, executing a live combined proof (deploying to live Render and wiring it to a live Supabase project) is still strictly gated and requires a separate human GO authorization. Do not run any live mutations on live cloud infrastructure without explicit approval.
+> The readiness seam is implemented and proven. A live combined proof (Supabase + Render + DB-backed `/health`) was completed on disposable resources with full cleanup. See the Reviewer Guide for the cloud bootstrap path summary.
 
 ---
 
@@ -188,7 +213,7 @@ Cleanup must be part of the proof, not a follow-up.
 Recommended order:
 
 1. Delete Telegram webhook if one was set.
-2. Delete temporary Render service.
-3. Delete disposable Supabase project.
+2. Delete temporary Render service (via REST API: `DELETE /v1/services/{id}` — HTTP 204 on success; Render CLI does not expose a native delete command).
+3. Delete disposable Supabase project (`supabase projects delete <ref> --yes`).
 4. Remove cleanroom containers.
 5. Verify that Render and Supabase no longer list disposable resources.
