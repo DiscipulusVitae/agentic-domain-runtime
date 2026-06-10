@@ -36,9 +36,9 @@ supabase db query --local --file supabase/smoke.sql
 
 ---
 
-## Путь 3 — Пройти live deploy proof (человек + CLI)
+## Путь 3 — Live cloud proof (guided wizard, alpha)
 
-Human-authorized dry-run preview и/или полный cloud proof на disposable ресурсах.
+Для reviewer/test аккаунтов. Guided wizard: doctor → план → Supabase → Render → smoke.
 
 **Dry-run preview (без мутаций):**
 
@@ -48,10 +48,18 @@ uv run python -m src.sandbox bootstrap plan
 uv run python -m src.sandbox bootstrap doctor
 ```
 
-**Live deploy proof (требует explicit GO и reviewer/test аккаунты):**
+**Live installer v1 alpha (требует explicit GO и reviewer/test аккаунты):**
 
-Доказан на disposable ресурсах (Supabase + Render + Telegram) с полным cleanup.
-Автоматический live installer находится в разработке. Пока live path — через ручной runbook.
+```bash
+uv run python -m src.sandbox bootstrap install --yes
+```
+
+Operational proof на disposable ресурсах (Supabase + Render + Telegram /health) — выполнен.
+Installer v1 alpha — реализован. Полный Win+WSL2 proof run запланирован.
+
+**Ручной runbook (fallback):**
+
+Если guided wizard не покрывает сценарий, доступен прямой manual путь через Supabase CLI + Render CLI. См. runbook.
 
 → Подробнее: [Reviewer Guide](docs/REVIEWER_GUIDE.md), Path C.
 → Операционные находки: [Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md).
@@ -60,8 +68,8 @@ uv run python -m src.sandbox bootstrap doctor
 
 ## Что сейчас в разработке
 
-- **`bootstrap install --yes`** — живой guided wizard. Пошагово ведёт: doctor → план → Supabase → Render → smoke → cleanup. Сегодня в v1.
-- **AI-reviewer simulation** — следующий шаг после обкатки installer v1.
+- **Live installer hardening** — Win+WSL2 wrapper, Docker Desktop doctor UX, Telegram webhook фаза, cleanup/resume wizard. Приоритет: подготовка к Win ПК proof run.
+- **AI-reviewer simulation** — следующий шаг после installer hardening.
 
 ---
 
@@ -72,5 +80,6 @@ uv run python -m src.sandbox bootstrap doctor
 | Offline sandbox (тесты, сценарии, HTTP server) | работает | fully offline |
 | Docker reviewer path | работает | полностью контейнеризован |
 | Local Supabase (схема, RLS, smoke.sql) | работает | Docker + Supabase CLI |
-| Cloud bootstrap (Supabase + Render + Telegram) | доказан | ручной runbook, human-authorized |
-| Live installer (единый guided wizard) | v1 готов | `bootstrap install --yes` |
+| Cloud bootstrap (Supabase + Render + Telegram /health) | доказан | ручной runbook, human-authorized |
+| Live installer (guided wizard) | v1 alpha | `bootstrap install --yes` |
+| Win+WSL2 proof run | запланирован | hardening в процессе |

@@ -38,7 +38,7 @@ The codebase supports three verification paths for technical reviewers:
 2. **Native Ubuntu 26.04 Path (Secondary & Debug)**: Runs checks, tests, and scenarios natively. Requires Python 3.13 and `uv`.
 3. **Optional Local Supabase (Database Schema Validation)**: Allows verifying relational schemas, migrations, RLS policies, seeds, and SQL smoke scripts locally using Docker and Supabase CLI.
 
-Additionally, a cloud bootstrap path has been proven on disposable resources. See **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** — Path C.
+Additionally, a live guided wizard (v1 alpha) and cloud bootstrap proof exist for reviewer/test accounts. See **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** — Path C.
 
 ## Milestone Status
 
@@ -47,10 +47,11 @@ Additionally, a cloud bootstrap path has been proven on disposable resources. Se
 | Offline sandbox + Docker reviewer path | работает |
 | Local Supabase (схема, RLS, smoke.sql) | работает |
 | `bootstrap install --dry-run` (preview/checklist) | работает |
-| Cloud proof (Supabase + Render + Telegram, ручной runbook) | доказан на disposable resources |
-| `bootstrap install --yes` live wizard | v1 готов |
+| Cloud proof (Supabase + Render + Telegram /health) | доказан на disposable ресурсах |
+| `bootstrap install --yes` live wizard (guided) | v1 alpha |
+| Win+WSL2 proof run | запланирован (hardening в процессе) |
 
-Кроме того, доступен живой guided wizard для развёртывания в облако. Подробнее в **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** — Path C, и **[Supabase + Render Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
+→ Подробнее см. **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** (Path C) и **[Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
 
 ## Quickstart
 
@@ -175,7 +176,7 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
     # Dry-run preview (без мутаций):
     uv run python -m src.sandbox bootstrap install --dry-run
 
-    # Live guided wizard (создаёт облачные ресурсы):
+    # Live guided wizard v1 alpha (создаёт облачные ресурсы — reviewer/test аккаунты):
     uv run python -m src.sandbox bootstrap install --yes
     ```
 
