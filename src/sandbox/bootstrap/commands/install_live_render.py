@@ -50,6 +50,41 @@ def _validate_adr_health(body: dict) -> dict:
     return result
 
 
+def _validate_live_render_health(body: dict) -> dict:
+    """Строгая валидация для live Render: требует Supabase persistence + DB reachable.
+
+    В отличие от _validate_adr_health, которая принимает любой ADR-shaped JSON
+    (включая memory mode), эта функция требует доказательства, что Render service
+    действительно подключён к Supabase.
+    """
+    result = _validate_adr_health(body)
+    if not result["valid"]:
+        return result
+
+    if result["persistence"] != "supabase":
+        result["valid"] = False
+        result["reason"] = f"persistence={result['persistence']} (ожидается supabase) — env vars не применились или runtime в memory mode"
+        return result
+
+    db = body.get("database", {})
+    if not db.get("configured"):
+        result["valid"] = False
+        result["reason"] = "database.configured=false — Supabase env vars не настроены"
+        return result
+
+    if not db.get("reachable"):
+        result["valid"] = False
+        result["reason"] = "database.reachable=false — Supabase недоступен"
+        return result
+
+    if db.get("schema_smoke") != "ok":
+        result["valid"] = False
+        result["reason"] = f"database.schema_smoke={db.get('schema_smoke')} (ожидается ok) — smoke не прошёл"
+        return result
+
+    return result
+
+
 def run_render_phase(plan, state: dict) -> None:
     """Фаза Render: login, создание сервиса, env vars, деплой, /health."""
     service_id = state.get("render_service_id")
@@ -257,16 +292,16 @@ def run_render_phase(plan, state: dict) -> None:
                 req = urllib.request.Request(health_url)
                 resp = urllib.request.urlopen(req, timeout=10)
                 body = json.loads(resp.read().decode())
-                validation = _validate_adr_health(body)
+                validation = _validate_live_render_health(body)
                 if validation["valid"]:
-                    step_pass(f"Деплой готов! /health: HTTP {resp.status}, ADR validated")
+                    step_pass(f"Деплой готов! /health: HTTP {resp.status}, Supabase-backed ADR validated")
                     step_info(f"  persistence: {validation['persistence']}, "
                               f"db.reachable: {validation['db_reachable']}, "
                               f"schema_smoke: {validation['db_smoke']}")
                     state["health_ok"] = True
                     break
                 else:
-                    step_fail(f"/health ответ не похож на ADR runtime: {validation['reason']}")
+                    step_fail(f"/health: {validation['reason']}")
                     state["health_ok"] = False
                     break
             except urllib.error.HTTPError as e:

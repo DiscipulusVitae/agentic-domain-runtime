@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from src.sandbox.bootstrap.commands.install_live_render import (
     _is_adr_health,
     _validate_adr_health,
+    _validate_live_render_health,
     ADR_REPO_URL,
     ADR_REPO_BRANCH,
     run_render_phase,
@@ -83,6 +84,81 @@ class TestAdrHealthValidation:
         result = _validate_adr_health({"nope": 1})
         assert result["valid"] is False
         assert result["reason"]
+
+
+class TestLiveRenderHealthValidation:
+    """Строгая валидация: требует Supabase persistence + DB reachable."""
+
+    def _supabase_health(self, **overrides):
+        body = {
+            "status": "ok",
+            "runtime": "python-stdlib",
+            "mode": "sandbox",
+            "llm_provider": "fake",
+            "enabled_domains": ["kitchen"],
+            "agent_ids": ["core.butler"],
+            "persistence": "supabase",
+            "database": {
+                "configured": True,
+                "reachable": True,
+                "schema_smoke": "ok"
+            }
+        }
+        body.update(overrides)
+        return body
+
+    def test_supabase_health_accepted(self):
+        """Supabase-backed health с configured/reachable/smoke=ok — accepted."""
+        result = _validate_live_render_health(self._supabase_health())
+        assert result["valid"] is True
+
+    def test_memory_mode_rejected(self):
+        """ADR memory mode rejected в live Render validator."""
+        body = self._supabase_health()
+        body["persistence"] = "memory"
+        result = _validate_live_render_health(body)
+        assert result["valid"] is False
+        assert "supabase" in result["reason"]
+
+    def test_db_not_configured_rejected(self):
+        """database.configured=false rejected."""
+        body = self._supabase_health()
+        body["database"]["configured"] = False
+        result = _validate_live_render_health(body)
+        assert result["valid"] is False
+        assert "configured" in result["reason"]
+
+    def test_db_not_reachable_rejected(self):
+        """database.reachable=false rejected."""
+        body = self._supabase_health()
+        body["database"]["reachable"] = False
+        result = _validate_live_render_health(body)
+        assert result["valid"] is False
+        assert "reachable" in result["reason"]
+
+    def test_db_smoke_failed_rejected(self):
+        """database.schema_smoke=failed rejected."""
+        body = self._supabase_health()
+        body["database"]["schema_smoke"] = "failed"
+        result = _validate_live_render_health(body)
+        assert result["valid"] is False
+        assert "smoke" in result["reason"]
+
+    def test_db_smoke_skipped_rejected(self):
+        """database.schema_smoke=skipped rejected."""
+        body = self._supabase_health()
+        body["database"]["schema_smoke"] = "skipped"
+        result = _validate_live_render_health(body)
+        assert result["valid"] is False
+
+    def test_memory_accepted_by_generic_rejected_by_strict(self):
+        """Generic _validate_adr_health принимает memory; strict — нет."""
+        body = self._supabase_health()
+        body["persistence"] = "memory"
+        generic = _validate_adr_health(body)
+        assert generic["valid"] is True
+        strict = _validate_live_render_health(body)
+        assert strict["valid"] is False
 
 
 class TestRenderCreateArgs:
@@ -215,12 +291,12 @@ def _fake_run_cmd_no_existing(args, **kw):
 
 
 class TestSmokePhaseAdrValidation:
-    """_run_smoke_phase валидирует ADR /health."""
+    """_run_smoke_phase валидирует live Render ADR /health."""
 
     def test_smoke_with_adr_health_passes(self, monkeypatch):
-        """ADR health ответ → success."""
+        """Supabase-backed ADR health ответ → success."""
         monkeypatch.setattr(
-            "src.sandbox.bootstrap.commands.install_live._validate_adr_health",
+            "src.sandbox.bootstrap.commands.install_live._validate_live_render_health",
             lambda body: {"valid": True, "persistence": "supabase",
                           "status": "ok", "runtime": "python-stdlib",
                           "mode": "sandbox", "db_configured": True,
@@ -235,13 +311,11 @@ class TestSmokePhaseAdrValidation:
             mock_open.return_value = mock_resp
             _run_smoke_phase(MagicMock(), state)
 
-        # Не упало — значит принято
-
     def test_smoke_with_non_adr_health_fails(self, monkeypatch):
-        """Не-ADR health ответ → fail message."""
+        """Memory mode ADR health → fail в live smoke."""
         monkeypatch.setattr(
-            "src.sandbox.bootstrap.commands.install_live._validate_adr_health",
-            lambda body: {"valid": False, "reason": "not ADR"},
+            "src.sandbox.bootstrap.commands.install_live._validate_live_render_health",
+            lambda body: {"valid": False, "reason": "persistence=memory not supabase"},
         )
 
         state = {"render_service_url": "https://bad.onrender.com"}
@@ -251,8 +325,6 @@ class TestSmokePhaseAdrValidation:
             mock_resp.read.return_value = b"{}"
             mock_open.return_value = mock_resp
             _run_smoke_phase(MagicMock(), state)
-
-        # Не упало с исключением
 
 
 class TestTelegramSendMessageMock:
