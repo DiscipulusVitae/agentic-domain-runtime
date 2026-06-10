@@ -37,7 +37,7 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             print(json.dumps({"error": ".bootstrap-state.json не найден"}, ensure_ascii=False))
         else:
             print("Ошибка: .bootstrap-state.json не найден. Нечего очищать.")
-        return 1
+        return 2
 
     webhook_set = state.get("webhook_set", False)
     service_id = state.get("render_service_id")
@@ -192,7 +192,7 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
     print("  Очистка завершена.")
     print("=" * 55)
 
-    return 0
+    return 1 if failed_resources else 0
 
 
 def _load_bootstrap_state() -> dict | None:

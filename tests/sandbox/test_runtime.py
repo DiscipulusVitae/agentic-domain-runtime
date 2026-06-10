@@ -462,3 +462,91 @@ def test_debug_storage_endpoint(server_url):
         data = json.loads(body)
         after_invalid_kitchen_count = data["counts"]["kitchen"]
         assert after_invalid_kitchen_count == after_valid_kitchen_count
+
+
+def test_webhook_start_command(server_url):
+    """POST /webhook/telegram with /start text returns welcome message, HTTP 200."""
+    url = f"{server_url}/webhook/telegram"
+    payload = {
+        "update_id": 1,
+        "message": {"message_id": 1, "text": "/start"}
+    }
+    req_data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.getcode() == 200
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+        assert data["success"] is True
+        assert data["routing"]["intent"] == "start_command"
+        assert "ADR" in data["output"]
+        assert "sandbox" in data["output"].lower()
+        assert "Добро пожаловать" in data["output"]
+
+
+def test_webhook_unknown_command(server_url):
+    """POST /webhook/telegram with unknown /command returns helpful message, HTTP 200."""
+    url = f"{server_url}/webhook/telegram"
+    payload = {
+        "update_id": 2,
+        "message": {"message_id": 2, "text": "/help"}
+    }
+    req_data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.getcode() == 200
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+        assert data["success"] is False
+        assert data["routing"]["intent"] == "unknown_command"
+        assert "/start" in data["output"]
+
+
+def test_webhook_text_path_not_broken(server_url):
+    """Обычный text path не сломан после добавления /start handler."""
+    url = f"{server_url}/webhook/telegram"
+    payload = {
+        "update_id": 3,
+        "message": {"message_id": 3, "text": "Добавь книгу Оруэлл 1984"}
+    }
+    req_data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.getcode() == 200
+        body = response.read().decode("utf-8")
+        data = json.loads(body)
+        assert data["success"] is True
+        assert data["routing"]["domain_id"] == "books"
+
+
+def test_webhook_invalid_payload_still_400(server_url):
+    """Invalid payload всё ещё возвращает 400 после добавления /start handler."""
+    url = f"{server_url}/webhook/telegram"
+    payload_no_text = {
+        "update_id": 4,
+        "message": {"message_id": 4}
+    }
+    req_data = json.dumps(payload_no_text).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=req_data,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req, timeout=5)
+    assert exc_info.value.code == 400
+    body = exc_info.value.read().decode("utf-8")
+    data = json.loads(body)
+    assert "message.text" in data["error"]

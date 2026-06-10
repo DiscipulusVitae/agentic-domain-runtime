@@ -91,8 +91,9 @@ class TestTtyGate:
         )
         with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
                    return_value={"render_service_id": "srv-test"}):
-            result = run_live_cleanup(preview=False, json_mode=False)
-            assert result == 1
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup._print_cleanup_preview"):
+                result = run_live_cleanup(preview=False, json_mode=False)
+                assert result == 1
 
     def test_cleanup_no_resources_no_tty_no_input(self, monkeypatch):
         """cleanup без ресурсов + no-TTY: не вызывает input(), controlled return."""
@@ -106,6 +107,19 @@ class TestTtyGate:
                    return_value={"supabase_skipped": True}):
             result = run_live_cleanup(preview=False, json_mode=False)
             assert result == 1
+
+    def test_cleanup_missing_state_returns_code_2(self, monkeypatch):
+        """Отсутствие state-файла — exit code 2."""
+        from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=None):
+            result = run_live_cleanup(preview=False, json_mode=True)
+            assert result == 2
 
     def test_cleanup_no_resources_json_mode_non_interactive(self, monkeypatch, capsys):
         """cleanup без ресурсов + json_mode: не вызывает input() даже с TTY."""

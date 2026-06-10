@@ -161,8 +161,17 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
                 self._send_error_response(400, "Missing 'message.text' field")
                 return
 
+            stripped_text = text.strip()
+
+            if stripped_text == "/start":
+                self._send_start_response()
+                return
+
+            if stripped_text.startswith("/"):
+                self._send_unknown_command_response(stripped_text)
+                return
+
             try:
-                # Run the async SandboxHarness flow
                 result = asyncio.run(_harness_instance.run_flow(text))
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -184,6 +193,58 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         response = {"error": message}
         self.wfile.write(json.dumps(response).encode("utf-8"))
+
+    def _send_start_response(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        response = {
+            "routing": {
+                "domain_id": None,
+                "agent_id": "core.butler",
+                "intent": "start_command",
+                "confidence": 1.0,
+                "input_kind": "command",
+                "requires_clarification": False,
+                "clarification_question": None,
+            },
+            "trace": "[routing: start_command]",
+            "success": True,
+            "output": (
+                "Добро пожаловать! Это sandbox/demo бот ADR (agentic-domain-runtime).\n"
+                "---\n"
+                "Я могу обработать короткий текст и показать демо-маршрутизацию по доменам:\n"
+                "  - Добавь рецепт борща — кулинарный ассистент\n"
+                "  - Добавь книгу Оруэлл 1984 — библиотекарь\n"
+                "  - Запиши давление 120 на 80 — ассистент здоровья\n"
+                "\n"
+                "Это reviewer sandbox на синтетических данных. "
+                "Production и личные данные не нужны."
+            ),
+            "display_name": "ADR Sandbox Bot",
+        }
+        self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+
+    def _send_unknown_command_response(self, command: str):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        response = {
+            "routing": {
+                "domain_id": None,
+                "agent_id": "core.butler",
+                "intent": "unknown_command",
+                "confidence": 0.0,
+                "input_kind": "command",
+                "requires_clarification": True,
+                "clarification_question": "Неизвестная команда. Доступна: /start",
+            },
+            "trace": f"[routing: unknown_command ({command})]",
+            "success": False,
+            "output": f"Неизвестная команда: {command}. Отправьте /start для информации.",
+            "display_name": None,
+        }
+        self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
 
 
 def serve(host: str, port: int):

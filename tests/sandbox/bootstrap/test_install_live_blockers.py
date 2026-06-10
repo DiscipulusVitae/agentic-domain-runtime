@@ -100,14 +100,13 @@ class TestBlockerCleanupConditionalState:
         pass
 
     def test_cleanup_no_state_file_returns_error(self):
-        """Без state файла cleanup должен возвращать ошибку."""
+        """Без state файла cleanup должен возвращать exit code 2."""
         import os
-        # Убеждаемся, что state файла нет
         if os.path.exists(".bootstrap-state.json"):
             os.remove(".bootstrap-state.json")
 
         result = run_live_cleanup(preview=True, json_mode=True)
-        assert result == 1
+        assert result == 2
 
 
 class TestBlockerTelegramFailSafe:
