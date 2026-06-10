@@ -11,6 +11,7 @@ from ..live_executor import (
     run_cmd,
     run_interactive,
     check_cli_logged_in,
+    discover_render_api_key,
     step_pass,
     step_skip,
     step_fail,
@@ -47,14 +48,39 @@ def run_render_phase(plan, state: dict) -> None:
         step_pass("Render CLI авторизован.")
 
     # --- Workspace ---
-    whoami = run_cmd(["render", "whoami", "--output", "json"], timeout=15)
-    if whoami["ok"]:
+    workspace_name = state.get("render_workspace")
+    workspace_id = state.get("render_workspace_id")
+
+    # Проверяем текущий workspace
+    current = run_cmd(
+        ["render", "workspace", "current", "--output", "json"], timeout=15
+    )
+    if current["ok"]:
         try:
-            data = json.loads(whoami["stdout"])
-            state["render_workspace"] = data.get("workspace", {}).get("name", "неизвестно")
+            data = json.loads(current["stdout"])
+            workspace_name = data.get("name", "")
+            workspace_id = data.get("id", "")
         except json.JSONDecodeError:
             pass
-    step_info(f"Workspace: {state.get('render_workspace', 'неизвестно')}")
+
+    if workspace_id:
+        state["render_workspace"] = workspace_name
+        state["render_workspace_id"] = workspace_id
+        step_info(f"Workspace: {workspace_name}")
+    else:
+        step_info("Workspace не выбран — ищу доступные...")
+        workspace_name, workspace_id = _select_render_workspace(state)
+        if not workspace_id:
+            step_fail("Workspace не выбран. Render фаза недоступна.")
+            print("  Создайте workspace в Render Dashboard:")
+            print("    https://dashboard.render.com/")
+            print("  Или выполните вручную: render workspace set")
+            print("  Затем перезапустите installer.")
+            if not ask_yes_no("Пропустить Render?"):
+                sys.exit(1)
+            state["render_skipped"] = True
+            save_state(state)
+            return
 
     save_state(state)
 
@@ -221,3 +247,96 @@ def _render_login_fallback(state: dict) -> None:
         save_state(state)
     else:
         step_pass("Render CLI авторизован (через новый терминал).")
+
+
+def _select_render_workspace(state: dict) -> tuple[str, str]:
+    """Выбирает Render workspace: auto-pick если один, выбор если несколько.
+
+    Использует render workspace current, затем REST API для списка.
+
+    Returns:
+        (workspace_name, workspace_id) — оба пустые если ничего не выбрано.
+    """
+    # Проверяем текущий workspace
+    current = run_cmd(
+        ["render", "workspace", "current", "--output", "json"], timeout=15
+    )
+    if current["ok"]:
+        try:
+            data = json.loads(current["stdout"])
+            ws_name = data.get("name", "")
+            ws_id = data.get("id", "")
+            if ws_id:
+                step_pass(f"Workspace: {ws_name}")
+                return ws_name, ws_id
+        except json.JSONDecodeError:
+            pass
+
+    # Workspace не выбран — получаем список через REST API
+    api_key = discover_render_api_key()
+    if not api_key:
+        print()
+        print("  Render API key не найден — не могу получить список workspace.")
+        print("  Выполните вручную:")
+        print("    render workspace set")
+        print("  Затем перезапустите installer.")
+        return "", ""
+
+    try:
+        req = urllib.request.Request(
+            "https://api.render.com/v1/workspaces",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=15)
+        workspaces = json.loads(resp.read().decode())
+    except Exception as e:
+        print()
+        print(f"  Не удалось получить список workspace: {e}")
+        print("  Выполните вручную:")
+        print("    render workspace set")
+        print("  Затем перезапустите installer.")
+        return "", ""
+
+    if not workspaces:
+        print()
+        print("  Нет доступных Render workspace на этом аккаунте.")
+        print("  Создайте workspace в Render Dashboard:")
+        print("    https://dashboard.render.com/")
+        print("  Затем перезапустите installer.")
+        return "", ""
+
+    if len(workspaces) == 1:
+        ws = workspaces[0]
+        ws_name = ws.get("name", ws.get("id", "unknown"))
+        ws_id = ws.get("id", "")
+        step_info(f"Единственный workspace: {ws_name} — выбираю автоматически.")
+    else:
+        print()
+        print("  Доступные workspace:")
+        for i, ws in enumerate(workspaces, 1):
+            print(f"    {i}. {ws.get('name', ws.get('id', 'unknown'))}")
+
+        choice = ask("  Выберите номер (Enter = отмена): ")
+        if not choice or not choice.isdigit():
+            return "", ""
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(workspaces):
+            return "", ""
+        ws = workspaces[idx]
+        ws_name = ws.get("name", ws.get("id", "unknown"))
+        ws_id = ws.get("id", "")
+
+    set_result = run_cmd(
+        ["render", "workspace", "set", ws_id], timeout=15
+    )
+    if set_result["ok"]:
+        state["render_workspace"] = ws_name
+        state["render_workspace_id"] = ws_id
+        step_pass(f"Workspace: {ws_name}")
+        return ws_name, ws_id
+    else:
+        step_fail(f"Не удалось переключить workspace: {set_result['combined']}")
+        return "", ""
