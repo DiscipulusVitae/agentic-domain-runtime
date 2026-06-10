@@ -30,7 +30,7 @@ from ..live_executor import (
 )
 
 from .install_live_supabase import run_supabase_phase
-from .install_live_render import run_render_phase
+from .install_live_render import run_render_phase, _validate_adr_health
 from .install_live_telegram import run_telegram_phase
 
 TOTAL_STEPS = 7
@@ -164,13 +164,16 @@ def _run_smoke_phase(plan, state: dict) -> None:
         req = urllib.request.Request(health_url)
         resp = urllib.request.urlopen(req, timeout=10)
         body = json.loads(resp.read().decode())
-        step_pass(f"/health: HTTP {resp.status}")
-        print(f"  status:      {body.get('status')}")
-        print(f"  persistence: {body.get('persistence')}")
-        db = body.get("database", {})
-        print(f"  db.configured: {db.get('configured')}")
-        print(f"  db.reachable:  {db.get('reachable')}")
-        print(f"  db.schema_smoke: {db.get('schema_smoke')}")
+        validation = _validate_adr_health(body)
+        if validation["valid"]:
+            step_pass(f"/health: HTTP {resp.status}, ADR validated")
+            print(f"  status:        {validation['status']}")
+            print(f"  persistence:   {validation['persistence']}")
+            print(f"  db.configured: {validation['db_configured']}")
+            print(f"  db.reachable:  {validation['db_reachable']}")
+            print(f"  db.schema_smoke: {validation['db_smoke']}")
+        else:
+            step_fail(f"/health: HTTP {resp.status}, но не ADR: {validation['reason']}")
     except Exception as e:
         step_fail(f"/health: {e}")
 

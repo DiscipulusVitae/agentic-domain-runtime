@@ -5,6 +5,7 @@ import time
 import urllib.request
 import urllib.error
 
+from ..env_checks import TTY_ERROR_MESSAGE
 from ..live_executor import (
     ask,
     ask_yes_no,
@@ -18,6 +19,35 @@ from ..live_executor import (
     save_state,
     mask,
 )
+
+ADR_REPO_URL = "https://github.com/DiscipulusVitae/agentic-domain-runtime"
+ADR_REPO_BRANCH = "main"
+
+
+def _is_adr_health(body: dict) -> bool:
+    """Проверяет, что /health ответ похож на ADR runtime, а не на placeholder."""
+    if not isinstance(body, dict):
+        return False
+    required_keys = {"status", "runtime", "mode", "persistence", "database"}
+    return required_keys.issubset(body.keys())
+
+
+def _validate_adr_health(body: dict) -> dict:
+    """Валидирует ADR /health ответ. Возвращает результат проверки."""
+    result = {"valid": False, "reason": ""}
+    if not _is_adr_health(body):
+        result["reason"] = "Ответ не содержит ADR-специфичных полей (status, runtime, mode, persistence, database)"
+        return result
+    result["valid"] = True
+    result["persistence"] = body.get("persistence", "?")
+    result["status"] = body.get("status", "?")
+    result["runtime"] = body.get("runtime", "?")
+    result["mode"] = body.get("mode", "?")
+    db = body.get("database", {})
+    result["db_configured"] = db.get("configured", False)
+    result["db_reachable"] = db.get("reachable", False)
+    result["db_smoke"] = db.get("schema_smoke", "?")
+    return result
 
 
 def run_render_phase(plan, state: dict) -> None:
@@ -113,6 +143,7 @@ def run_render_phase(plan, state: dict) -> None:
                                 service_url = f"https://{service_name}.onrender.com"
                             state["render_service_id"] = service_id
                             state["render_service_url"] = service_url
+                            state["render_service_source"] = "existing"
                             step_pass(f"Найден существующий сервис: {service_url or mask(service_id)}")
                             break
             except json.JSONDecodeError:
@@ -134,7 +165,8 @@ def run_render_phase(plan, state: dict) -> None:
                 "--name", service_name,
                 "--type", "web_service",
                 "--runtime", "docker",
-                "--image", "traefik/whoami:latest",
+                "--repo", ADR_REPO_URL,
+                "--branch", ADR_REPO_BRANCH,
                 "--plan", "free",
                 "--region", "frankfurt",
                 "--output", "json",
@@ -160,6 +192,7 @@ def run_render_phase(plan, state: dict) -> None:
                             service_url = f"https://{service_name}.onrender.com"
                         state["render_service_id"] = service_id
                         state["render_service_url"] = service_url
+                        state["render_service_source"] = "created_fresh"
                         step_pass(f"Сервис создан: {service_url or mask(service_id)}")
                 except json.JSONDecodeError:
                     step_fail(f"Не удалось разобрать ответ: {result['stdout'][:200]}")
@@ -187,6 +220,7 @@ def run_render_phase(plan, state: dict) -> None:
                                             service_url = f"https://{service_name}.onrender.com"
                                         state["render_service_id"] = service_id
                                         state["render_service_url"] = service_url
+                                        state["render_service_source"] = "existing"
                                         step_pass(f"Найден существующий сервис: {service_url}")
                                     break
                         except json.JSONDecodeError:
@@ -203,6 +237,8 @@ def run_render_phase(plan, state: dict) -> None:
         if not service_url:
             service_url = f"https://{plan.render_web_service_name}.onrender.com"
             state["render_service_url"] = service_url
+        if not state.get("render_service_source"):
+            state["render_service_source"] = "existing"
         step_pass(f"Сервис: {service_url or mask(service_id)} (из сохранённого состояния)")
 
     save_state(state)
@@ -221,10 +257,18 @@ def run_render_phase(plan, state: dict) -> None:
                 req = urllib.request.Request(health_url)
                 resp = urllib.request.urlopen(req, timeout=10)
                 body = json.loads(resp.read().decode())
-                step_pass(f"Деплой готов! /health: HTTP {resp.status}")
-                step_info(f"Ответ: {json.dumps(body, ensure_ascii=False)}")
-                state["health_ok"] = True
-                break
+                validation = _validate_adr_health(body)
+                if validation["valid"]:
+                    step_pass(f"Деплой готов! /health: HTTP {resp.status}, ADR validated")
+                    step_info(f"  persistence: {validation['persistence']}, "
+                              f"db.reachable: {validation['db_reachable']}, "
+                              f"schema_smoke: {validation['db_smoke']}")
+                    state["health_ok"] = True
+                    break
+                else:
+                    step_fail(f"/health ответ не похож на ADR runtime: {validation['reason']}")
+                    state["health_ok"] = False
+                    break
             except urllib.error.HTTPError as e:
                 if e.code == 503:
                     step_info(f"Попытка {attempt + 1}/12: HTTP 503 (ещё деплоится)...")
