@@ -202,27 +202,52 @@ REPO_DIR="agentic-domain-runtime"
 echo ""
 echo ">>> Репозиторий ADR..."
 
-if [ -d "$REPO_DIR" ]; then
-    echo "  Найден существующий клон: $REPO_DIR"
+# Проверяем, не находимся ли мы уже внутри клона репозитория
+IN_REPO=false
+if [ -f "pyproject.toml" ] && [ -f "scripts/adr_bootstrap_wsl2.sh" ]; then
+    IN_REPO=true
+    echo "  Обнаружен запуск изнутри репозитория."
+    echo "  Текущая директория: $(pwd)"
+    REPO_DIR="."
+fi
+
+if [ "$IN_REPO" = true ]; then
+    echo "  Использую текущую директорию."
+    echo "  Обновить (git pull origin main)? [y/N]"
+    read -r REPLY
+    if [ "${REPLY:-}" = "y" ] || [ "${REPLY:-}" = "Y" ]; then
+        git fetch origin
+        git pull origin main
+        echo "  [OK] Обновлено."
+    else
+        echo "  Пропущено обновление."
+    fi
+elif [ -d "$REPO_DIR" ]; then
+    ABS_PATH="$(cd "$REPO_DIR" 2>/dev/null && pwd || echo "$(pwd)/$REPO_DIR")"
+    echo "  Найден существующий клон: $ABS_PATH"
     echo "  Обновить (git pull)? [y/N]"
     read -r REPLY
     if [ "${REPLY:-}" = "y" ] || [ "${REPLY:-}" = "Y" ]; then
-        cd "$REPO_DIR"
-        current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+        current_branch=$(git -C "$ABS_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
         echo "  Текущая ветка: $current_branch"
-        git fetch origin
-        echo "  Обновляю..."
-        git pull origin main
+        git -C "$ABS_PATH" fetch origin
+        git -C "$ABS_PATH" pull origin main
     else
-        cd "$REPO_DIR"
         echo "  Пропущено обновление."
     fi
 else
-    echo "  Клонирую: $REPO_URL"
-    git clone "$REPO_URL"
-    cd "$REPO_DIR"
+    DEST="$(pwd)/$REPO_DIR"
+    echo "  Клонирую в: $DEST"
+    git clone "$REPO_URL" "$DEST"
     echo "  [OK] Клонирован."
 fi
+
+# Переходим в директорию репозитория
+if [ "$REPO_DIR" != "." ]; then
+    TARGET="$(cd "$REPO_DIR" 2>/dev/null && pwd || echo "$(pwd)/$REPO_DIR")"
+    cd "$TARGET"
+fi
+echo "  Рабочая директория: $(pwd)"
 
 # 9. Install Python dependencies
 echo ""
