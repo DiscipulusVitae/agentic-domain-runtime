@@ -7,6 +7,7 @@
 """
 
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -36,6 +37,49 @@ from .install_live_telegram import run_telegram_phase
 TOTAL_STEPS = 7
 
 
+def _print_state_summary(state: dict) -> None:
+    """Выводит сводку ресурсов из сохранённого состояния."""
+    ref = state.get("supabase_project_ref")
+    name = state.get("supabase_project_name")
+    if ref or name:
+        print(f"  Supabase:   {name or 'неизвестно'} ({mask(ref) if ref else 'неизвестно'})")
+
+    svc_id = state.get("render_service_id")
+    svc_name = state.get("render_service_name")
+    svc_url = state.get("render_service_url")
+    svc_source = state.get("render_service_source")
+    if svc_id or svc_name:
+        print(f"  Render:     {svc_name or 'неизвестно'} ({mask(svc_id) if svc_id else 'неизвестно'})")
+        if svc_url:
+            print(f"              URL: {svc_url}")
+        if svc_source:
+            print(f"              Источник: {svc_source}")
+
+    bot_username = state.get("telegram_bot_username")
+    if bot_username:
+        print(f"  Telegram:   @{bot_username}")
+
+    webhook = state.get("webhook_url")
+    if webhook:
+        print(f"              webhook: {webhook}")
+
+    applied = [k for k in state if k.startswith("step") or k in ("health_ok", "webhook_verified")]
+    if applied:
+        steps = ", ".join(applied)
+        print(f"  Пройдено:   {steps}")
+
+
+def _archive_state(path: str = ".bootstrap-state.json") -> None:
+    """Архивирует старый state-файл в .bootstrap-state.json.old."""
+    if os.path.exists(path):
+        old_path = path + ".old"
+        try:
+            os.rename(path, old_path)
+            step_info(f"Старое состояние заархивировано: {old_path}")
+        except OSError:
+            step_info("Не удалось архивировать состояние, продолжаем.")
+
+
 def run_install_live(json_mode: bool = False) -> int:
     """Запускает живой мастер установки ADR."""
     if not is_tty_available():
@@ -47,6 +91,22 @@ def run_install_live(json_mode: bool = False) -> int:
 
     state = load_state()
     plan = generate_bootstrap_plan()
+
+    if state:
+        print("=" * 60)
+        print("  Обнаружено предыдущее состояние установки")
+        print("=" * 60)
+        print()
+        _print_state_summary(state)
+        print()
+        if not ask_yes_no("Продолжить с сохранённым состоянием? (N — начать заново, старый файл будет заархивирован)",
+                           default=False):
+            _archive_state()
+            state = {}
+            print()
+            step_info("Начинаем с чистого состояния.")
+        else:
+            step_info("Продолжаем с сохранённым состоянием.")
 
     print("=" * 60)
     print("  ADR Bootstrap — Мастер установки v1")

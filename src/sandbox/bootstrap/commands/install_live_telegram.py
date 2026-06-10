@@ -1,6 +1,7 @@
 """Фаза Telegram для живого мастера установки."""
 import getpass
 import json
+import os
 import secrets
 import sys
 import time
@@ -36,6 +37,32 @@ def run_telegram_phase(plan, state: dict) -> None:
     """
     token = state.get("_telegram_token")  # временно хранится в памяти в том же объекте
 
+    token_source = state.get("_telegram_token_source", "")
+    env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+
+    if env_token and not token:
+        token = env_token
+        token_source = "env"
+        state["_telegram_token"] = token
+        state["_telegram_token_source"] = token_source
+        step_info("Обнаружен TELEGRAM_BOT_TOKEN в переменных окружения.")
+    elif token and token_source == "env":
+        pass  # уже определён в предыдущем проходе
+    elif token:
+        token_source = state.get("_telegram_token_source", "state")
+        step_info(f"Обнаружен токен в состоянии сессии (источник: {token_source}).")
+    else:
+        token_source = ""
+
+    if token:
+        if not ask_yes_no("Использовать обнаруженный токен? Убедитесь, что это reviewer/disposable бот.",
+                           default=bool(env_token)):
+            step_info("Токен сброшен — будет запрошен новый.")
+            token = None
+            token_source = ""
+            state.pop("_telegram_token", None)
+            state.pop("_telegram_token_source", None)
+
     # Шаг 1: Получение токена
     if not token:
         print()
@@ -58,7 +85,17 @@ def run_telegram_phase(plan, state: dict) -> None:
             save_state(state)
             return
 
-        token = getpass.getpass("  Токен бота (ввод скрыт): ").strip()
+        use_env_var = False
+        if env_token:
+            if ask_yes_no("Использовать TELEGRAM_BOT_TOKEN из окружения?"
+                          " (Убедитесь, что это reviewer/disposable бот.)"):
+                token = env_token
+                token_source = "env"
+                use_env_var = True
+
+        if not use_env_var:
+            token = getpass.getpass("  Токен бота (ввод скрыт): ").strip()
+            token_source = "prompt"
 
         if not token:
             step_skip("Пустой токен — Telegram фаза пропущена.")
@@ -67,6 +104,8 @@ def run_telegram_phase(plan, state: dict) -> None:
             return
 
         state["_telegram_token"] = token
+        state["_telegram_token_source"] = token_source
+        step_info(f"Токен получен (источник: {token_source}).")
 
     # Шаг 2: getMe — валидация токена (read-only)
     step_info("Проверка токена (getMe)...")
