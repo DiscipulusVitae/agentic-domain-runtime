@@ -101,45 +101,40 @@ def run_supabase_phase(plan, state: dict) -> None:
             save_state(state)
             return
 
-        step_info("Создание проекта (это может занять минуту)...")
+        print()
+        print("  Supabase CLI может запросить database password для нового disposable проекта.")
+        print("  Введите новый пароль вручную в prompt CLI.")
+        print("  ADR installer не сохраняет и не выводит этот пароль.")
+        print("  Не используйте prod/dev password.")
+        print()
+
+        step_info("Создание проекта в интерактивном режиме (может занять минуту)...")
         create_args = ["supabase", "projects", "create", project_name,
-                       "--region", "eu-central-1", "--output", "json"]
+                       "--region", "eu-central-1"]
         if org_id:
             create_args += ["--org-id", org_id]
 
-        result = run_cmd(create_args, timeout=120)
-        if not result["ok"]:
-            combined = result["combined"].lower()
-            if "already" in combined or "exist" in combined:
-                step_info(f"Проект уже существует: {project_name}")
-                list_result = run_cmd(["supabase", "projects", "list", "--output", "json"], timeout=15)
-                if list_result["ok"]:
-                    try:
-                        projects = json.loads(list_result["stdout"])
-                        for p in projects:
-                            if p.get("name") == project_name:
-                                project_ref = p.get("id", "")
-                                state["supabase_project_ref"] = project_ref
-                                step_pass(f"Найден существующий проект: {mask(project_ref)}")
-                                break
-                    except json.JSONDecodeError:
-                        pass
-            if not project_ref:
-                step_fail(f"Не удалось создать проект: {result['combined']}")
-                if not ask_yes_no("Пропустить Supabase?"):
-                    sys.exit(1)
-                state["supabase_skipped"] = True
-                save_state(state)
-                return
-        else:
+        run_interactive(create_args, timeout=300)
+
+        # Разрешаем project ref через read-only list
+        list_result = run_cmd(["supabase", "projects", "list", "--output", "json"], timeout=15)
+        if list_result["ok"]:
             try:
-                data = json.loads(result["stdout"])
-                project_ref = data.get("id", "")
-                if project_ref:
-                    state["supabase_project_ref"] = project_ref
-                    step_pass(f"Проект создан: {mask(project_ref)}")
+                projects = json.loads(list_result["stdout"])
+                for p in projects:
+                    if p.get("name") == project_name:
+                        project_ref = p.get("id", "")
+                        state["supabase_project_ref"] = project_ref
+                        step_pass(f"Проект создан: {mask(project_ref)}")
+                        break
             except json.JSONDecodeError:
-                step_fail("Не удалось разобрать ответ создания проекта")
+                pass
+
+        if not project_ref:
+            step_fail(f"Не удалось найти проект '{project_name}' после создания.")
+            _project_create_dashboard_fallback(state, project_name)
+            project_ref = state.get("supabase_project_ref")
+            if not project_ref:
                 if not ask_yes_no("Пропустить Supabase?"):
                     sys.exit(1)
                 state["supabase_skipped"] = True
@@ -158,6 +153,21 @@ def run_supabase_phase(plan, state: dict) -> None:
         if link["ok"]:
             state["supabase_linked"] = True
             step_pass("Проект привязан.")
+        elif _is_password_or_tty_error(link["combined"]):
+            step_info("Требуется интерактивный ввод — перезапуск link...")
+            run_interactive(["supabase", "link", "--project-ref", project_ref], timeout=120)
+            check = run_cmd(["supabase", "status", "--output", "json"], timeout=15)
+            if check["ok"]:
+                state["supabase_linked"] = True
+                step_pass("Проект привязан (интерактивный режим).")
+            else:
+                step_fail(f"Не удалось привязать проект после интерактивной попытки.")
+                if not ask_yes_no("Продолжить без link?"):
+                    if not ask_yes_no("Пропустить Supabase?"):
+                        sys.exit(1)
+                    state["supabase_skipped"] = True
+                    save_state(state)
+                    return
         else:
             step_fail(f"Не удалось привязать проект: {link['combined']}")
             if not ask_yes_no("Продолжить без link?"):
@@ -277,3 +287,31 @@ def _supabase_login_fallback(state: dict) -> None:
         save_state(state)
     else:
         step_pass("Supabase CLI авторизован (через новый терминал).")
+
+
+def _project_create_dashboard_fallback(state: dict, project_name: str) -> None:
+    """Dashboard fallback: проект создаётся вручную через Supabase Dashboard."""
+    print()
+    print("  Создайте проект вручную в Supabase Dashboard:")
+    print(f"    https://supabase.com/dashboard/")
+    print(f"  Имя проекта: {project_name}")
+    print(f"  Регион: eu-central-1")
+    print()
+    print("  После создания скопируйте Project Reference ID")
+    print("  (формат: abcdefghijklmnopqrst)")
+    print()
+    ref = ask("  Project Reference ID: ").strip()
+    if ref and len(ref) >= 20:
+        state["supabase_project_ref"] = ref
+        step_pass(f"Project ref получен из Dashboard: {mask(ref)}")
+    else:
+        step_fail(f"Некорректный project ref: '{ref}'")
+        state.pop("supabase_project_ref", None)
+
+
+def _is_password_or_tty_error(output: str) -> bool:
+    """Определяет, связана ли ошибка с требованием пароля или TTY."""
+    lower = output.lower()
+    keywords = ["non-interactive", "password", "db-password", "tty",
+                "requires the following", "interactive"]
+    return any(kw in lower for kw in keywords)

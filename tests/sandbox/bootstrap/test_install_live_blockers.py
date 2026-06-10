@@ -307,3 +307,171 @@ class TestCliLoginUx:
 
         assert len(run_interactive_calls) >= 1
         assert state.get("supabase_skipped") is True
+
+
+class TestSupabaseProjectCreateTTY:
+    """T305.3: создание проекта через интерактивный TTY."""
+
+    def test_project_create_uses_interactive_not_run_cmd(self, monkeypatch):
+        """Project create вызывает run_interactive, не run_cmd."""
+        create_calls = []
+        cmd_calls = []
+
+        def fake_run_interactive(args, timeout):
+            create_calls.append(args)
+
+        def fake_run_cmd(args, **kw):
+            cmd_calls.append(args)
+            if "--output" in args and "json" in args:
+                project_ref = "abc123def456"
+                found = any(
+                    project_ref if "-proj-" in str(a) else False for a in args
+                )
+                return {"ok": True, "stdout": json.dumps([{"name": "test-proj", "id": project_ref}])}
+            return {"ok": True, "stdout": "", "stderr": "", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            fake_run_interactive,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
+            fake_run_cmd,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
+            lambda *a: True,
+        )
+
+        state = {"supabase_org_id": "org-1", "supabase_org_name": "test"}
+        plan = MagicMock()
+        plan.supabase_project_name = "test-proj"
+        plan.supabase_organization = "test-org"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_supabase.save_state"):
+            with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
+                       lambda *a, **kw: True):
+                with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask",
+                           lambda *a, **kw: ""):
+                    run_supabase_phase(plan, state)
+
+        # Project create должен вызываться через run_interactive
+        project_create_calls = [args for args in create_calls if "create" in args]
+        assert len(project_create_calls) >= 1, f"create_calls={create_calls}, cmd_calls={cmd_calls}"
+        create_args = project_create_calls[0]
+        assert "--output" not in create_args
+        assert "json" not in create_args
+        assert "--db-password" not in create_args
+
+    def test_project_ref_resolved_after_interactive_create(self, monkeypatch):
+        """После интерактивного create project ref определяется через list."""
+        create_calls = []
+
+        def fake_run_interactive(args, timeout):
+            create_calls.append(args)
+
+        def fake_run_cmd(args, **kw):
+            if "projects" in args and "list" in args:
+                return {"ok": True, "stdout": json.dumps([
+                    {"name": "test-proj", "id": "ref-abc-123-def-456"}
+                ])}
+            return {"ok": True, "stdout": "", "stderr": "", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            fake_run_interactive,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
+            fake_run_cmd,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
+            lambda *a: True,
+        )
+
+        state = {"supabase_org_id": "org-1", "supabase_org_name": "test"}
+        plan = MagicMock()
+        plan.supabase_project_name = "test-proj"
+        plan.supabase_organization = "test-org"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_supabase.save_state"):
+            with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
+                       lambda *a, **kw: True):
+                with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask",
+                           lambda *a, **kw: ""):
+                    run_supabase_phase(plan, state)
+
+        assert len(create_calls) >= 1
+        assert state.get("supabase_project_ref") == "ref-abc-123-def-456"
+
+    def test_password_error_keyword_detection(self, monkeypatch):
+        """_is_password_or_tty_error определяет ошибки пароля/TTY."""
+        from src.sandbox.bootstrap.commands.install_live_supabase import (
+            _is_password_or_tty_error,
+        )
+        assert _is_password_or_tty_error(
+            "non-interactive mode requires --db-password"
+        ) is True
+        assert _is_password_or_tty_error("TTY required") is True
+        assert _is_password_or_tty_error("Enter password:") is True
+        assert _is_password_or_tty_error("successfully") is False
+        assert _is_password_or_tty_error("") is False
+
+    def test_no_db_password_in_args_by_default(self):
+        """В args create не должно быть --db-password по умолчанию."""
+        import inspect
+        import src.sandbox.bootstrap.commands.install_live_supabase as mod
+
+        source = inspect.getsource(mod)
+        assert "--db-password" not in source, (
+            "--db-password найден в коде — не должен быть в default args"
+        )
+
+    def test_link_retries_interactive_on_password_error(self, monkeypatch):
+        """Если link возвращает password/TTY ошибку, пробуем run_interactive."""
+        run_interactive_calls = []
+        cmd_calls = []
+
+        def fake_run_interactive(args, timeout):
+            run_interactive_calls.append(args)
+
+        def fake_run_cmd(args, **kw):
+            cmd_calls.append(args)
+            # Всегда возвращаем валидный JSON для orgs list
+            if "orgs" in args and "list" in args:
+                return {"ok": True, "stdout": json.dumps([{"id": "org-1", "name": "test"}]), "combined": ""}
+            # Первый link — password error
+            if "link" in args:
+                link_count = sum(1 for c in cmd_calls if "link" in c)
+                if link_count == 1:
+                    return {"ok": False, "combined": "non-interactive mode requires password"}
+            return {"ok": True, "stdout": "{}", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            fake_run_interactive,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
+            fake_run_cmd,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
+            lambda *a: True,
+        )
+
+        state = {"supabase_project_ref": "ref-test", "supabase_anon_key": "key"}
+        plan = MagicMock()
+        plan.supabase_project_name = "test-proj"
+        plan.supabase_organization = "test-org"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_supabase.save_state"):
+            with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
+                       lambda *a, **kw: True):
+                with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask",
+                           lambda *a, **kw: ""):
+                    run_supabase_phase(plan, state)
+
+        link_interactive = [args for args in run_interactive_calls if "link" in args]
+        assert len(link_interactive) >= 1, f"run_interactive={run_interactive_calls}"
