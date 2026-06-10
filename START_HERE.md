@@ -60,8 +60,8 @@ uv run python -m src.sandbox bootstrap doctor
 
 ## Что сейчас в разработке
 
-- **`bootstrap install`** — сегодня это dry-run preview/checklist. Полноценный live installer (с guided wizard, проверкой окружения и пошаговым deploy) — в roadmap на ближайший горизонт.
-- **AI-reviewer simulation** — следующий шаг после installer productization.
+- **`bootstrap install --yes`** — живой guided wizard. Пошагово ведёт: doctor → план → Supabase → Render → smoke → cleanup. Сегодня в v1.
+- **AI-reviewer simulation** — следующий шаг после обкатки installer v1.
 
 ---
 
@@ -73,4 +73,4 @@ uv run python -m src.sandbox bootstrap doctor
 | Docker reviewer path | работает | полностью контейнеризован |
 | Local Supabase (схема, RLS, smoke.sql) | работает | Docker + Supabase CLI |
 | Cloud bootstrap (Supabase + Render + Telegram) | доказан | ручной runbook, human-authorized |
-| Live installer (единый guided wizard) | в разработке | см. roadmap |
+| Live installer (единый guided wizard) | v1 готов | `bootstrap install --yes` |

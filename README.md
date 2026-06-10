@@ -48,9 +48,9 @@ Additionally, a cloud bootstrap path has been proven on disposable resources. Se
 | Local Supabase (схема, RLS, smoke.sql) | работает |
 | `bootstrap install --dry-run` (preview/checklist) | работает |
 | Cloud proof (Supabase + Render + Telegram, ручной runbook) | доказан на disposable resources |
-| `bootstrap install` live wizard (без `--dry-run`) | в разработке |
+| `bootstrap install --yes` live wizard | v1 готов |
 
-Live cloud mutations не входят в дефолтный reviewer path. Ключевые proof gates (Render `/health`, Telegram webhook, Supabase schema smoke, combined Supabase + Render DB-backed `/health`) пройдены на disposable ресурсах с полным cleanup. См. **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** (Path C) и **[Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
+Кроме того, доступен живой guided wizard для развёртывания в облако. Подробнее в **[Reviewer Guide](docs/REVIEWER_GUIDE.md)** — Path C, и **[Supabase + Render Wiring Runbook](docs/SUPABASE_RENDER_WIRING_RUNBOOK.md)**.
 
 ## Quickstart
 
@@ -171,22 +171,13 @@ Runs completely offline with zero infrastructure dependencies. It uses a local f
    ```
 
 6. **Run bootstrap verification commands**
-   ```bash
-   # Verify dependencies
-   uv run python -m src.sandbox bootstrap doctor
+    ```bash
+    # Dry-run preview (без мутаций):
+    uv run python -m src.sandbox bootstrap install --dry-run
 
-   # Inspect resource plan
-   uv run python -m src.sandbox bootstrap plan
-
-   # Simulate full installation wizard flow (10 key steps)
-   uv run python -m src.sandbox bootstrap install --dry-run
-
-   # Dry-run apply stages (deterministic plan/checklist generation)
-   uv run python -m src.sandbox bootstrap apply --dry-run
-
-   # Dry-run smoke test validation
-   uv run python -m src.sandbox bootstrap smoke --dry-run
-   ```
+    # Live guided wizard (создаёт облачные ресурсы):
+    uv run python -m src.sandbox bootstrap install --yes
+    ```
 
 ### Path C: Optional Local Supabase
 Allows verifying database schemas, RLS policies, and SQL smoke scripts locally.
