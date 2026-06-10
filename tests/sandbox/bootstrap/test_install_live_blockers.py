@@ -8,6 +8,12 @@ from src.sandbox.bootstrap.commands.install_live_telegram import (
     _telegram_api_call,
     run_telegram_phase,
 )
+from src.sandbox.bootstrap.commands.install_live_supabase import (
+    run_supabase_phase,
+)
+from src.sandbox.bootstrap.commands.install_live_render import (
+    run_render_phase,
+)
 from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
 from src.sandbox.bootstrap.live_executor import discover_render_api_key
 
@@ -161,3 +167,143 @@ class TestRenderApiKeyDiscovery:
         monkeypatch.setenv("RENDER_API_KEY", "rk_env_test123")
         result = discover_render_api_key()
         assert result == "rk_env_test123"
+
+
+class TestCliLoginUx:
+    """T305.2: интерактивный login вместо "откройте новый терминал"."""
+
+    def test_supabase_phase_calls_run_interactive_for_login(self, monkeypatch):
+        """При отсутствии авторизации supabase фаза вызывает run_interactive."""
+        run_interactive_calls = []
+
+        def fake_run_interactive(args, timeout):
+            run_interactive_calls.append(args)
+
+        def fake_check_logged_in(cmd, test_args):
+            if len(run_interactive_calls) == 0:
+                return False
+            return True
+
+        def fake_run_cmd(args, **kw):
+            return {"ok": True, "code": 0, "stdout": "[]", "stderr": "", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            fake_run_interactive,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
+            fake_check_logged_in,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
+            fake_run_cmd,
+        )
+
+        state = {"supabase_project_ref": "abc123", "supabase_anon_key": "key"}
+        plan = MagicMock()
+        plan.supabase_project_name = "test-proj"
+        plan.supabase_organization = "test-org"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_supabase.save_state"):
+            with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
+                       lambda *a, **kw: True):
+                with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask",
+                           lambda *a, **kw: ""):
+                    run_supabase_phase(plan, state)
+
+        assert len(run_interactive_calls) >= 1
+        assert run_interactive_calls[0] == ["supabase", "login"]
+
+    def test_render_phase_calls_run_interactive_for_login(self, monkeypatch):
+        """При отсутствии авторизации render фаза вызывает run_interactive."""
+        run_interactive_calls = []
+
+        def fake_run_interactive(args, timeout):
+            run_interactive_calls.append(args)
+
+        def fake_check_logged_in(cmd, test_args):
+            if len(run_interactive_calls) == 0:
+                return False
+            return True
+
+        def fake_run_cmd(args, **kw):
+            return {"ok": True, "code": 0, "stdout": "{}", "stderr": "", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.run_interactive",
+            fake_run_interactive,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.check_cli_logged_in",
+            fake_check_logged_in,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_render.run_cmd",
+            fake_run_cmd,
+        )
+
+        state = {"render_service_id": "srv-test",
+                 "render_service_url": "https://x.onrender.com",
+                 "supabase_anon_key": "fake-key"}
+        plan = MagicMock()
+        plan.render_web_service_name = "test-svc"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_render.save_state"):
+            with patch("src.sandbox.bootstrap.commands.install_live_render.ask_yes_no",
+                       lambda *a, **kw: True):
+                with patch("src.sandbox.bootstrap.commands.install_live_render.ask",
+                           lambda *a, **kw: ""):
+                    with patch("urllib.request.urlopen") as mock_open:
+                        mock_resp = MagicMock()
+                        mock_resp.status = 200
+                        mock_resp.read.return_value = b'{"status":"ok"}'
+                        mock_open.return_value = mock_resp
+                        run_render_phase(plan, state)
+
+        assert len(run_interactive_calls) >= 1
+        assert run_interactive_calls[0] == ["render", "login"]
+
+    def test_supabase_fallback_when_interactive_fails(self, monkeypatch):
+        """Если run_interactive не дал авторизации — fallback с ручным входом."""
+        run_interactive_calls = []
+
+        def fake_run_interactive(args, timeout):
+            run_interactive_calls.append(args)
+
+        def fake_check_logged_in(cmd, test_args):
+            return False
+
+        def fake_run_cmd(args, **kw):
+            return {"ok": True, "code": 0, "stdout": "[]", "stderr": "", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            fake_run_interactive,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
+            fake_check_logged_in,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
+            fake_run_cmd,
+        )
+
+        state = {"supabase_project_ref": "abc123", "supabase_anon_key": "key"}
+        plan = MagicMock()
+        plan.supabase_project_name = "test-proj"
+        plan.supabase_organization = "test-org"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_supabase.save_state"):
+            responses = [True, True]
+            def fake_ask_yes_no(*a, **kw):
+                return responses.pop(0) if responses else False
+            with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
+                       fake_ask_yes_no):
+                with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask",
+                           lambda *a, **kw: ""):
+                    run_supabase_phase(plan, state)
+
+        assert len(run_interactive_calls) >= 1
+        assert state.get("supabase_skipped") is True

@@ -6,6 +6,7 @@ from ..live_executor import (
     ask,
     ask_yes_no,
     run_cmd,
+    run_interactive,
     check_cli_logged_in,
     step_pass,
     step_skip,
@@ -26,20 +27,23 @@ def run_supabase_phase(plan, state: dict) -> None:
     if not check_cli_logged_in("supabase", ["projects", "list", "--output", "json"]):
         print()
         print("  Supabase CLI не авторизован.")
-        print("  Откройте НОВЫЙ терминал и выполните:")
-        print("    supabase login")
-        print("  После завершения вернитесь сюда и нажмите Enter.")
-        print()
-        ask("  Нажмите Enter когда будете готовы...")
+        if ask_yes_no("  Запустить 'supabase login' в этом терминале?",
+                       default=True):
+            step_info("Запуск supabase login (откроется браузер)...")
+            run_interactive(["supabase", "login"], timeout=300)
 
-        if not check_cli_logged_in("supabase", ["projects", "list", "--output", "json"]):
-            step_fail("Supabase всё ещё не авторизован.")
-            if not ask_yes_no("  Пропустить Supabase и продолжить без БД?"):
-                sys.exit(1)
-            state["supabase_skipped"] = True
-            save_state(state)
+            if check_cli_logged_in("supabase", ["projects", "list",
+                                                  "--output", "json"]):
+                step_pass("Supabase CLI авторизован (через интерактивный login).")
+            else:
+                step_info("Интерактивный login не подтвердился — пробуем fallback.")
+                _supabase_login_fallback(state)
+                return
+        else:
+            _supabase_login_fallback(state)
             return
-    step_pass("Supabase CLI авторизован.")
+    else:
+        step_pass("Supabase CLI авторизован.")
 
     # --- Организация ---
     if not state.get("supabase_org_id"):
@@ -253,3 +257,23 @@ def run_supabase_phase(plan, state: dict) -> None:
                 step_skip("Anon ключ не задан — /health проверка Render будет недоступна.")
 
     save_state(state)
+
+
+def _supabase_login_fallback(state: dict) -> None:
+    """Fallback: вход вручную через новый терминал."""
+    print()
+    print("  Откройте НОВЫЙ терминал и выполните:")
+    print("    supabase login")
+    print("  После завершения вернитесь сюда и нажмите Enter.")
+    print()
+    ask("  Нажмите Enter когда будете готовы...")
+
+    if not check_cli_logged_in("supabase", ["projects", "list",
+                                              "--output", "json"]):
+        step_fail("Supabase всё ещё не авторизован.")
+        if not ask_yes_no("  Пропустить Supabase и продолжить без БД?"):
+            sys.exit(1)
+        state["supabase_skipped"] = True
+        save_state(state)
+    else:
+        step_pass("Supabase CLI авторизован (через новый терминал).")

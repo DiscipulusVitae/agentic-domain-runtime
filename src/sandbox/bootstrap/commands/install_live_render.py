@@ -9,6 +9,7 @@ from ..live_executor import (
     ask,
     ask_yes_no,
     run_cmd,
+    run_interactive,
     check_cli_logged_in,
     step_pass,
     step_skip,
@@ -28,21 +29,22 @@ def run_render_phase(plan, state: dict) -> None:
     if not check_cli_logged_in("render", ["whoami"]):
         print()
         print("  Render CLI не авторизован.")
-        print("  Выполните в терминале:")
-        print("    render login")
-        print("  Откроется браузер для device-code авторизации.")
-        print("  После завершения нажмите Enter.")
-        print()
-        ask("  Нажмите Enter когда будете готовы...")
+        if ask_yes_no("  Запустить 'render login' в этом терминале?",
+                       default=True):
+            step_info("Запуск render login (откроется браузер)...")
+            run_interactive(["render", "login"], timeout=300)
 
-        if not check_cli_logged_in("render", ["whoami"]):
-            step_fail("Render всё ещё не авторизован.")
-            if not ask_yes_no("Пропустить Render?"):
-                sys.exit(1)
-            state["render_skipped"] = True
-            save_state(state)
+            if check_cli_logged_in("render", ["whoami"]):
+                step_pass("Render CLI авторизован (через интерактивный login).")
+            else:
+                step_info("Интерактивный login не подтвердился — пробуем fallback.")
+                _render_login_fallback(state)
+                return
+        else:
+            _render_login_fallback(state)
             return
-    step_pass("Render CLI авторизован.")
+    else:
+        step_pass("Render CLI авторизован.")
 
     # --- Workspace ---
     whoami = run_cmd(["render", "whoami", "--output", "json"], timeout=15)
@@ -177,3 +179,23 @@ def run_render_phase(plan, state: dict) -> None:
         step_skip("URL сервиса неизвестен — пропускаем /health проверку.")
 
     save_state(state)
+
+
+def _render_login_fallback(state: dict) -> None:
+    """Fallback: вход вручную через новый терминал."""
+    print()
+    print("  Выполните в терминале:")
+    print("    render login")
+    print("  Откроется браузер для device-code авторизации.")
+    print("  После завершения нажмите Enter.")
+    print()
+    ask("  Нажмите Enter когда будете готовы...")
+
+    if not check_cli_logged_in("render", ["whoami"]):
+        step_fail("Render всё ещё не авторизован.")
+        if not ask_yes_no("Пропустить Render?"):
+            sys.exit(1)
+        state["render_skipped"] = True
+        save_state(state)
+    else:
+        step_pass("Render CLI авторизован (через новый терминал).")
