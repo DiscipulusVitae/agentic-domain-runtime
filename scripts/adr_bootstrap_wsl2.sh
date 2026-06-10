@@ -174,15 +174,17 @@ else
         ZIP_URL="https://github.com/render-oss/cli/releases/download/${RENDER_VER}/cli_${RENDER_VER#v}_linux_amd64.zip"
         if curl -fsSL -o "$TMP_DIR/render.zip" "$ZIP_URL"; then
             unzip -o "$TMP_DIR/render.zip" -d "$TMP_DIR" >/dev/null 2>&1
-            if [ -f "$TMP_DIR/render" ]; then
-                mv "$TMP_DIR/render" "$INSTALL_DIR/render"
+            RENDER_BIN=$(ls "$TMP_DIR"/cli_v* 2>/dev/null | head -1)
+            if [ -n "$RENDER_BIN" ] && [ -f "$RENDER_BIN" ]; then
+                mv "$RENDER_BIN" "$INSTALL_DIR/render"
                 chmod +x "$INSTALL_DIR/render"
                 echo "  [OK] Render CLI ${RENDER_VER} установлен в $INSTALL_DIR/render"
                 if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
                     echo "  Добавьте в ~/.bashrc: export PATH=\"\$HOME/.local/bin:\$PATH\""
                 fi
             else
-                echo "  Ошибка: не удалось извлечь render из архива."
+                echo "  Ошибка: не удалось найти бинарник в архиве."
+                echo "  Установите вручную: https://github.com/render-oss/cli/releases"
             fi
         else
             echo "  Ошибка: не удалось скачать Render CLI."
