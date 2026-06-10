@@ -82,15 +82,46 @@ class TestTtyGate:
         assert result == 0
 
     def test_cleanup_live_blocks_when_no_tty(self, monkeypatch):
-        """run_live_cleanup возвращает 1 в no-TTY окружении."""
+        """run_live_cleanup возвращает 1 в no-TTY окружении при наличии ресурсов."""
         from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
 
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
             lambda: False,
         )
-        result = run_live_cleanup(preview=False, json_mode=False)
-        assert result == 1
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value={"render_service_id": "srv-test"}):
+            result = run_live_cleanup(preview=False, json_mode=False)
+            assert result == 1
+
+    def test_cleanup_no_resources_no_tty_no_input(self, monkeypatch):
+        """cleanup без ресурсов + no-TTY: не вызывает input(), controlled return."""
+        from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: False,
+        )
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value={"supabase_skipped": True}):
+            result = run_live_cleanup(preview=False, json_mode=False)
+            assert result == 1
+
+    def test_cleanup_no_resources_json_mode_non_interactive(self, monkeypatch, capsys):
+        """cleanup без ресурсов + json_mode: не вызывает input() даже с TTY."""
+        from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value={"supabase_skipped": True}):
+            result = run_live_cleanup(preview=False, json_mode=True)
+            assert result == 0
+            captured = capsys.readouterr()
+            output = captured.out.strip()
+            assert "nothing_to_cleanup" in output
 
     def test_cleanup_preview_not_affected_by_tty_gate(self, monkeypatch):
         """cleanup --live --preview bypass TTY gate (preview не требует TTY)."""

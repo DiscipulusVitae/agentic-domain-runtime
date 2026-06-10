@@ -47,6 +47,35 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
 
     has_any = bool(webhook_set or service_id or project_ref)
 
+    # --- Preview ---
+    # Preview не требует TTY: только печать плана, без input() и мутаций
+    if preview:
+        if not has_any:
+            if json_mode:
+                print(json.dumps({"status": "nothing_to_cleanup"}, ensure_ascii=False))
+            else:
+                print("В state-файле нет созданных ресурсов. Нечего очищать.")
+            return 0
+
+        print("=" * 55)
+        print("  ADR Bootstrap — Мастер очистки (cleanup wizard)")
+        print("=" * 55)
+        print()
+        _print_cleanup_preview(state, webhook_set, service_id, project_ref, bot_username, service_url)
+        print()
+        print("Это был preview-режим. Никакие ресурсы не были удалены.")
+        print("Для реальной очистки запустите: bootstrap cleanup --live")
+        return 0
+
+    # --- TTY gate ---
+    # Все интерактивные ветки (input, ask_yes_no) — только после этой точки
+    if not is_tty_available():
+        if json_mode:
+            print(json.dumps({"error": "tty_required", "message": TTY_ERROR_MESSAGE.split(chr(10))[0]}, ensure_ascii=False))
+        else:
+            print(TTY_ERROR_MESSAGE, file=sys.stderr)
+        return 1
+
     if not has_any:
         if json_mode:
             print(json.dumps({"status": "nothing_to_cleanup"}, ensure_ascii=False))
@@ -59,26 +88,13 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
                 print("Файл состояния удалён.")
         return 0
 
-    # --- Preview ---
+    # --- Live cleanup ---
     print("=" * 55)
     print("  ADR Bootstrap — Мастер очистки (cleanup wizard)")
     print("=" * 55)
     print()
 
     _print_cleanup_preview(state, webhook_set, service_id, project_ref, bot_username, service_url)
-
-    if preview:
-        print()
-        print("Это был preview-режим. Никакие ресурсы не были удалены.")
-        print("Для реальной очистки запустите: bootstrap cleanup --live")
-        return 0
-
-    if not is_tty_available():
-        if json_mode:
-            print(json.dumps({"error": "tty_required", "message": TTY_ERROR_MESSAGE.split(chr(10))[0]}, ensure_ascii=False))
-        else:
-            print(TTY_ERROR_MESSAGE, file=sys.stderr)
-        return 1
 
     print()
     if not ask_yes_no("Выполнить очистку этих ресурсов?", default=False):
