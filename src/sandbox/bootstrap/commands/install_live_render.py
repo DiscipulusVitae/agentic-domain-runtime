@@ -11,7 +11,6 @@ from ..live_executor import (
     run_cmd,
     run_interactive,
     check_cli_logged_in,
-    discover_render_api_key,
     step_pass,
     step_skip,
     step_fail,
@@ -252,7 +251,7 @@ def _render_login_fallback(state: dict) -> None:
 def _select_render_workspace(state: dict) -> tuple[str, str]:
     """Выбирает Render workspace: auto-pick если один, выбор если несколько.
 
-    Использует render workspace current, затем REST API для списка.
+    Использует render workspace current, затем интерактивный picker CLI.
 
     Returns:
         (workspace_name, workspace_id) — оба пустые если ничего не выбрано.
@@ -272,71 +271,35 @@ def _select_render_workspace(state: dict) -> tuple[str, str]:
         except json.JSONDecodeError:
             pass
 
-    # Workspace не выбран — получаем список через REST API
-    api_key = discover_render_api_key()
-    if not api_key:
-        print()
-        print("  Render API key не найден — не могу получить список workspace.")
-        print("  Выполните вручную:")
-        print("    render workspace set")
-        print("  Затем перезапустите installer.")
-        return "", ""
+    # Workspace не выбран — интерактивный picker Render CLI
+    print()
+    step_info("Запуск интерактивного выбора workspace...")
+    print("  Render CLI покажет список доступных workspace.")
+    print("  Выберите workspace стрелками и нажмите Enter.")
+    print()
 
-    try:
-        req = urllib.request.Request(
-            "https://api.render.com/v1/workspaces",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Accept": "application/json",
-            },
-        )
-        resp = urllib.request.urlopen(req, timeout=15)
-        workspaces = json.loads(resp.read().decode())
-    except Exception as e:
-        print()
-        print(f"  Не удалось получить список workspace: {e}")
-        print("  Выполните вручную:")
-        print("    render workspace set")
-        print("  Затем перезапустите installer.")
-        return "", ""
+    run_interactive(["render", "workspace", "set"], timeout=120)
 
-    if not workspaces:
-        print()
-        print("  Нет доступных Render workspace на этом аккаунте.")
-        print("  Создайте workspace в Render Dashboard:")
-        print("    https://dashboard.render.com/")
-        print("  Затем перезапустите installer.")
-        return "", ""
-
-    if len(workspaces) == 1:
-        ws = workspaces[0]
-        ws_name = ws.get("name", ws.get("id", "unknown"))
-        ws_id = ws.get("id", "")
-        step_info(f"Единственный workspace: {ws_name} — выбираю автоматически.")
-    else:
-        print()
-        print("  Доступные workspace:")
-        for i, ws in enumerate(workspaces, 1):
-            print(f"    {i}. {ws.get('name', ws.get('id', 'unknown'))}")
-
-        choice = ask("  Выберите номер (Enter = отмена): ")
-        if not choice or not choice.isdigit():
-            return "", ""
-        idx = int(choice) - 1
-        if idx < 0 or idx >= len(workspaces):
-            return "", ""
-        ws = workspaces[idx]
-        ws_name = ws.get("name", ws.get("id", "unknown"))
-        ws_id = ws.get("id", "")
-
-    set_result = run_cmd(
-        ["render", "workspace", "set", ws_id], timeout=15
+    # Повторная проверка
+    current = run_cmd(
+        ["render", "workspace", "current", "--output", "json"], timeout=15
     )
-    if set_result["ok"]:
-        state["render_workspace"] = ws_name
-        state["render_workspace_id"] = ws_id
-        step_pass(f"Workspace: {ws_name}")
-        return ws_name, ws_id
-    else:
-        step_fail(f"Не удалось переключить workspace: {set_result['combined']}")
-        return "", ""
+    if current["ok"]:
+        try:
+            data = json.loads(current["stdout"])
+            ws_name = data.get("name", "")
+            ws_id = data.get("id", "")
+            if ws_id:
+                state["render_workspace"] = ws_name
+                state["render_workspace_id"] = ws_id
+                step_pass(f"Workspace выбран: {ws_name}")
+                return ws_name, ws_id
+        except json.JSONDecodeError:
+            pass
+
+    # Ничего не выбрано
+    print()
+    print("  Не удалось выбрать workspace.")
+    print("  Выполните вручную: render workspace set")
+    print("  Затем перезапустите installer.")
+    return "", ""
