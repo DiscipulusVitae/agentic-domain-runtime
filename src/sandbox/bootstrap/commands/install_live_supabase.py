@@ -1,5 +1,6 @@
 """Фаза Supabase для живого мастера установки."""
 import json
+import secrets
 import sys
 
 from ..live_executor import (
@@ -102,61 +103,86 @@ def run_supabase_phase(plan, state: dict) -> None:
             return
 
         print()
-        print("  Supabase CLI запросит database password для нового disposable проекта.")
-        print("  Введите новый пароль (не оставляйте пустым — CLI может упасть).")
-        print("  ADR installer не сохраняет и не выводит этот пароль.")
-        print("  Не используйте prod/dev password.")
+        print("  Installer создаст одноразовый DB credential для этого disposable проекта.")
+        print("  Credential не сохраняется и не выводится ADR.")
         print()
 
-        step_info("Создание проекта в интерактивном режиме (может занять минуту)...")
+        step_info("Создание проекта (может занять минуту)...")
+
+        # Primary path: generated disposable password, non-interactive create
+        db_password = secrets.token_urlsafe(24)
         create_args = ["supabase", "projects", "create", project_name,
-                       "--region", "eu-central-1"]
+                       "--region", "eu-central-1",
+                       "--db-password", db_password,
+                       "--output", "json"]
         if org_id:
             create_args += ["--org-id", org_id]
 
-        run_interactive(create_args, timeout=300)
+        result = run_cmd(create_args, timeout=120)
+        # Уничтожаем пароль сразу после вызова
+        db_password = ""
 
-        # Разрешаем project ref через read-only list
-        list_result = run_cmd(["supabase", "projects", "list", "--output", "json"], timeout=15)
-        if list_result["ok"]:
+        if result["ok"]:
             try:
-                projects = json.loads(list_result["stdout"])
-                for p in projects:
-                    if p.get("name") == project_name:
-                        project_ref = p.get("id", "")
-                        state["supabase_project_ref"] = project_ref
-                        step_pass(f"Проект создан: {mask(project_ref)}")
-                        break
+                data = json.loads(result["stdout"])
+                project_ref = data.get("id", "")
+                if project_ref:
+                    state["supabase_project_ref"] = project_ref
+                    step_pass(f"Проект создан: {mask(project_ref)}")
+                else:
+                    step_info("JSON ответ получен, но без id — сверяю через list...")
             except json.JSONDecodeError:
-                pass
+                step_info("Не удалось разобрать JSON ответа — сверяю через list...")
 
+        # Если не получили ref из JSON — ищем через list
         if not project_ref:
-            step_fail(f"Проект '{project_name}' не найден после создания. Возможно, CLI упал на пустом пароле.")
-            if ask_yes_no("Повторить создание проекта интерактивно? (нужно ввести пароль в CLI prompt)"):
-                step_info("Повторная попытка...")
-                run_interactive(create_args, timeout=300)
-                list_result = run_cmd(["supabase", "projects", "list", "--output", "json"], timeout=15)
-                if list_result["ok"]:
-                    try:
-                        projects = json.loads(list_result["stdout"])
-                        for p in projects:
-                            if p.get("name") == project_name:
-                                project_ref = p.get("id", "")
-                                state["supabase_project_ref"] = project_ref
-                                step_pass(f"Проект создан: {mask(project_ref)}")
-                                break
-                    except json.JSONDecodeError:
-                        pass
+            list_result = run_cmd(["supabase", "projects", "list", "--output", "json"],
+                                  timeout=15)
+            if list_result["ok"]:
+                try:
+                    projects = json.loads(list_result["stdout"])
+                    for p in projects:
+                        if p.get("name") == project_name:
+                            project_ref = p.get("id", "")
+                            state["supabase_project_ref"] = project_ref
+                            step_pass(f"Проект создан: {mask(project_ref)}")
+                            break
+                except json.JSONDecodeError:
+                    pass
 
+        # Если всё ещё нет — interactive fallback
+        if not project_ref and "non-interactive" in result.get("combined", "").lower():
+            step_info("Non-interactive режим не сработал — пробую интерактивный...")
+            print("  Введите пароль в CLI prompt (не оставляйте пустым).")
+            run_interactive(["supabase", "projects", "create", project_name,
+                             "--region", "eu-central-1"] +
+                            (["--org-id", org_id] if org_id else []),
+                            timeout=300)
+            list_result = run_cmd(["supabase", "projects", "list", "--output", "json"],
+                                  timeout=15)
+            if list_result["ok"]:
+                try:
+                    projects = json.loads(list_result["stdout"])
+                    for p in projects:
+                        if p.get("name") == project_name:
+                            project_ref = p.get("id", "")
+                            state["supabase_project_ref"] = project_ref
+                            step_pass(f"Проект создан: {mask(project_ref)}")
+                            break
+                except json.JSONDecodeError:
+                    pass
+
+        # Последний рубеж — Dashboard
+        if not project_ref:
+            step_fail(f"Не удалось создать проект '{project_name}'.")
+            _project_create_dashboard_fallback(state, project_name)
+            project_ref = state.get("supabase_project_ref")
             if not project_ref:
-                _project_create_dashboard_fallback(state, project_name)
-                project_ref = state.get("supabase_project_ref")
-                if not project_ref:
-                    if not ask_yes_no("Пропустить Supabase?"):
-                        sys.exit(1)
-                    state["supabase_skipped"] = True
-                    save_state(state)
-                    return
+                if not ask_yes_no("Пропустить Supabase?"):
+                    sys.exit(1)
+                state["supabase_skipped"] = True
+                save_state(state)
+                return
     else:
         step_pass(f"Проект: {mask(project_ref)} (из сохранённого состояния)")
 

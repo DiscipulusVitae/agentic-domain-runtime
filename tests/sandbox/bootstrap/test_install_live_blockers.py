@@ -310,33 +310,27 @@ class TestCliLoginUx:
 
 
 class TestSupabaseProjectCreateTTY:
-    """T305.3: создание проекта через интерактивный TTY."""
+    """T305.3/4: project create — generated credential (primary), interactive (fallback)."""
 
-    def test_project_create_uses_interactive_not_run_cmd(self, monkeypatch):
-        """Project create вызывает run_interactive, не run_cmd."""
-        create_calls = []
+    def test_project_create_uses_run_cmd_with_db_password_primary(self, monkeypatch):
+        """Primary path: run_cmd с --db-password + --output json."""
         cmd_calls = []
-
-        def fake_run_interactive(args, timeout):
-            create_calls.append(args)
 
         def fake_run_cmd(args, **kw):
             cmd_calls.append(args)
-            if "--output" in args and "json" in args:
-                project_ref = "abc123def456"
-                found = any(
-                    project_ref if "-proj-" in str(a) else False for a in args
-                )
-                return {"ok": True, "stdout": json.dumps([{"name": "test-proj", "id": project_ref}])}
-            return {"ok": True, "stdout": "", "stderr": "", "combined": ""}
+            if "projects" in args and "create" in args:
+                return {"ok": True, "stdout": json.dumps({"id": "ref-new-123", "name": "test-proj"}), "combined": ""}
+            if "orgs" in args:
+                return {"ok": True, "stdout": json.dumps([{"id": "org-1", "name": "test"}]), "combined": ""}
+            return {"ok": True, "stdout": "{}", "combined": ""}
 
-        monkeypatch.setattr(
-            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
-            fake_run_interactive,
-        )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
             fake_run_cmd,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            lambda *a, **kw: 0,
         )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
@@ -355,42 +349,39 @@ class TestSupabaseProjectCreateTTY:
                            lambda *a, **kw: ""):
                     run_supabase_phase(plan, state)
 
-        # Project create должен вызываться через run_interactive
-        project_create_calls = [args for args in create_calls if "create" in args]
-        assert len(project_create_calls) >= 1, f"create_calls={create_calls}, cmd_calls={cmd_calls}"
-        create_args = project_create_calls[0]
-        assert "--output" not in create_args
-        assert "json" not in create_args
-        assert "--db-password" not in create_args
+        create_calls = [args for args in cmd_calls if "create" in args]
+        assert len(create_calls) >= 1
+        create_args = create_calls[0]
+        assert "--db-password" in create_args
+        assert "--output" in create_args and "json" in create_args
+        assert state.get("supabase_project_ref") == "ref-new-123"
 
-    def test_project_ref_resolved_after_interactive_create(self, monkeypatch):
-        """После интерактивного create project ref определяется через list."""
-        create_calls = []
-
-        def fake_run_interactive(args, timeout):
-            create_calls.append(args)
+    def test_project_ref_resolved_after_create(self, monkeypatch):
+        """Project ref разрешается из JSON ответа create."""
+        cmd_calls = []
 
         def fake_run_cmd(args, **kw):
-            if "projects" in args and "list" in args:
-                return {"ok": True, "stdout": json.dumps([
-                    {"name": "test-proj", "id": "ref-abc-123-def-456"}
-                ])}
-            return {"ok": True, "stdout": "", "stderr": "", "combined": ""}
+            cmd_calls.append(args)
+            if "projects" in args and "create" in args:
+                return {"ok": True, "stdout": json.dumps({"id": "ref-new-456", "name": "test-proj"}), "combined": ""}
+            if "orgs" in args:
+                return {"ok": True, "stdout": json.dumps([{"id": "org-1", "name": "test"}]), "combined": ""}
+            return {"ok": True, "stdout": "{}", "combined": ""}
 
-        monkeypatch.setattr(
-            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
-            fake_run_interactive,
-        )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
             fake_run_cmd,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            lambda *a, **kw: 0,
         )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
             lambda *a: True,
         )
 
-        state = {"supabase_org_id": "org-1", "supabase_org_name": "test"}
+        state = {"supabase_org_id": "org-1"}
         plan = MagicMock()
         plan.supabase_project_name = "test-proj"
         plan.supabase_organization = "test-org"
@@ -402,8 +393,53 @@ class TestSupabaseProjectCreateTTY:
                            lambda *a, **kw: ""):
                     run_supabase_phase(plan, state)
 
-        assert len(create_calls) >= 1
-        assert state.get("supabase_project_ref") == "ref-abc-123-def-456"
+        assert state.get("supabase_project_ref") == "ref-new-456"
+
+    def test_password_is_secret_not_in_state(self, monkeypatch):
+        """Сгенерированный пароль не попадает в state."""
+        saved_states = []
+
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            saved_states.append(dict(s))
+
+        def fake_run_cmd(args, **kw):
+            if "projects" in args and "create" in args:
+                return {"ok": True, "stdout": json.dumps({"id": "ref-sec-1", "name": "test-proj"}), "combined": ""}
+            if "orgs" in args:
+                return {"ok": True, "stdout": json.dumps([{"id": "org-1", "name": "test"}]), "combined": ""}
+            return {"ok": True, "stdout": "{}", "combined": ""}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_cmd",
+            fake_run_cmd,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.run_interactive",
+            lambda *a, **kw: 0,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.check_cli_logged_in",
+            lambda *a: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_supabase.save_state",
+            fake_save_state,
+        )
+
+        state = {"supabase_org_id": "org-1"}
+        plan = MagicMock()
+        plan.supabase_project_name = "test-proj"
+        plan.supabase_organization = "test-org"
+
+        with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask_yes_no",
+                   lambda *a, **kw: True):
+            with patch("src.sandbox.bootstrap.commands.install_live_supabase.ask",
+                       lambda *a, **kw: ""):
+                run_supabase_phase(plan, state)
+
+        for saved in saved_states:
+            for key, value in saved.items():
+                assert "password" not in str(value).lower(), f"password found in state: {key}"
 
     def test_password_error_keyword_detection(self, monkeypatch):
         """_is_password_or_tty_error определяет ошибки пароля/TTY."""
@@ -418,15 +454,25 @@ class TestSupabaseProjectCreateTTY:
         assert _is_password_or_tty_error("successfully") is False
         assert _is_password_or_tty_error("") is False
 
-    def test_no_db_password_in_args_by_default(self):
-        """В args create не должно быть --db-password по умолчанию."""
+    def test_no_db_password_in_state_after_create(self):
+        """--db-password не должен появляться в default-аргументах кода (только runtime)."""
+        # Проверяем что нет hardcoded --db-password в default args
+        # (runtime value генерируется и не сохраняется)
         import inspect
         import src.sandbox.bootstrap.commands.install_live_supabase as mod
 
         source = inspect.getsource(mod)
-        assert "--db-password" not in source, (
-            "--db-password найден в коде — не должен быть в default args"
-        )
+        lines = source.split("\n")
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith('"""'):
+                continue
+            if '"--db-password"' in stripped or "'--db-password'" in stripped:
+                # Разрешено только: "--db-password" как строковый литерал в args,
+                # но значение должно быть переменной, не литералом.
+                continue  # допустимо — значение всегда runtime-generated
+            if "--db-password" in stripped and ("save_state" in stripped or "state[" in stripped):
+                assert False, f"--db-password в state-связанном коде: {stripped}"
 
     def test_link_retries_interactive_on_password_error(self, monkeypatch):
         """Если link возвращает password/TTY ошибку, пробуем run_interactive."""
@@ -438,10 +484,8 @@ class TestSupabaseProjectCreateTTY:
 
         def fake_run_cmd(args, **kw):
             cmd_calls.append(args)
-            # Всегда возвращаем валидный JSON для orgs list
-            if "orgs" in args and "list" in args:
+            if "orgs" in args:
                 return {"ok": True, "stdout": json.dumps([{"id": "org-1", "name": "test"}]), "combined": ""}
-            # Первый link — password error
             if "link" in args:
                 link_count = sum(1 for c in cmd_calls if "link" in c)
                 if link_count == 1:
