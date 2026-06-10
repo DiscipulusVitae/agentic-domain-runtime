@@ -259,6 +259,7 @@ async def async_main() -> None:
         cleanup_parser = subparsers.add_parser("cleanup", help="Очистка/откат ресурсов")
         cleanup_parser.add_argument("--preview", action="store_true", help="Показать превью плана очистки без изменений")
         cleanup_parser.add_argument("--local", action="store_true", help="Запустить в локальном режиме")
+        cleanup_parser.add_argument("--live", action="store_true", help="Живой guided wizard очистки (удаляет облачные ресурсы)")
         cleanup_parser.add_argument("--state-path", default=None, help="Путь к файлу состояния")
         cleanup_parser.add_argument("--json", action="store_true", help="Вывод в формате JSON")
 
@@ -329,8 +330,11 @@ async def async_main() -> None:
                 json_mode=args.json
             ))
         elif args.bootstrap_cmd == "cleanup":
+            if args.live:
+                from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
+                sys.exit(run_live_cleanup(preview=args.preview, json_mode=args.json))
             if not args.preview or not args.local:
-                bootstrap_parser.error("Команда cleanup требует обязательного указания флагов --preview и --local.")
+                bootstrap_parser.error("Команда cleanup требует --preview --local (dry-run) или --live (guided wizard).")
             sys.exit(run_cleanup(
                 preview=args.preview,
                 local=args.local,
