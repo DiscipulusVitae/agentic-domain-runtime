@@ -73,77 +73,98 @@ def run_render_phase(plan, state: dict) -> None:
             save_state(state)
             return
 
-        print()
-        if not ask_yes_no(f"Создать Render сервис '{service_name}' (free tier, Docker runtime)?"):
-            if not ask_yes_no("Пропустить Render?"):
-                sys.exit(1)
-            state["render_skipped"] = True
-            save_state(state)
-            return
-
-        step_info("Создание сервиса (занимает 30-60 секунд)...")
-        create_args = [
-            "render", "services", "create",
-            "--name", service_name,
-            "--type", "web_service",
-            "--runtime", "docker",
-            "--plan", "free",
-            "--region", "frankfurt",
-            "--output", "json",
-            "--confirm",
-            "--env-var", "ADR_PERSISTENCE=supabase",
-            "--env-var", f"SUPABASE_URL=https://{state['supabase_project_ref']}.supabase.co",
-            "--env-var", f"SUPABASE_API_KEY_PUBLISHABLE={anon_key}",
-        ]
-
-        result = run_cmd(create_args, timeout=120)
-        if result["ok"]:
+        # Сначала проверяем, существует ли сервис
+        list_result = run_cmd(["render", "services", "--output", "json"], timeout=15)
+        if list_result["ok"]:
             try:
-                data = json.loads(result["stdout"])
-                if isinstance(data, list):
-                    svc = data[0].get("service", data[0])
-                else:
-                    svc = data.get("service", data)
-                service_id = svc.get("id", "")
-                service_url = svc.get("url", "")
-                if service_id:
-                    state["render_service_id"] = service_id
-                    state["render_service_url"] = service_url
-                    step_pass(f"Сервис создан: {service_url or mask(service_id)}")
+                services = json.loads(list_result["stdout"])
+                for s in services:
+                    svc = s.get("service", s)
+                    if svc.get("name") == service_name:
+                        service_id = svc.get("id", "")
+                        service_url = svc.get("url", "")
+                        state["render_service_id"] = service_id
+                        state["render_service_url"] = service_url
+                        step_pass(f"Найден существующий сервис: {service_url or mask(service_id)}")
+                        break
             except json.JSONDecodeError:
-                step_fail(f"Не удалось разобрать ответ: {result['stdout'][:200]}")
-                if not ask_yes_no("Пропустить Render?"):
-                    sys.exit(1)
-                state["render_skipped"] = True
-                save_state(state)
-                return
-        else:
-            combined = result["combined"].lower()
-            if "already" in combined or "exist" in combined:
-                step_info(f"Сервис уже существует: {service_name}")
-                list_result = run_cmd(["render", "services", "--output", "json"], timeout=15)
-                if list_result["ok"]:
-                    try:
-                        services = json.loads(list_result["stdout"])
-                        for s in services:
-                            svc_inner = s.get("service", s)
-                            if svc_inner.get("name") == service_name:
-                                service_id = svc_inner.get("id", "")
-                                service_url = svc_inner.get("url", "")
-                                state["render_service_id"] = service_id
-                                state["render_service_url"] = service_url
-                                step_pass(f"Найден существующий сервис: {service_url}")
-                                break
-                    except json.JSONDecodeError:
-                        pass
+                pass
 
-            if not service_id:
-                step_fail(f"Не удалось создать сервис: {result['combined']}")
+        # Если не найден — создаём
+        if not service_id:
+            print()
+            if not ask_yes_no(f"Создать Render сервис '{service_name}' (free tier, Docker runtime)?"):
                 if not ask_yes_no("Пропустить Render?"):
                     sys.exit(1)
                 state["render_skipped"] = True
                 save_state(state)
                 return
+
+            step_info("Создание сервиса (занимает 30-60 секунд)...")
+            create_args = [
+                "render", "services", "create",
+                "--name", service_name,
+                "--type", "web_service",
+                "--runtime", "docker",
+                "--repo", "https://github.com/DiscipulusVitae/agentic-domain-runtime.git",
+                "--plan", "free",
+                "--region", "frankfurt",
+                "--output", "json",
+                "--confirm",
+                "--env-var", "ADR_PERSISTENCE=supabase",
+                "--env-var", f"SUPABASE_URL=https://{state['supabase_project_ref']}.supabase.co",
+                "--env-var", f"SUPABASE_API_KEY_PUBLISHABLE={anon_key}",
+            ]
+
+            result = run_cmd(create_args, timeout=120)
+            if result["ok"]:
+                try:
+                    data = json.loads(result["stdout"])
+                    if isinstance(data, list):
+                        svc = data[0].get("service", data[0])
+                    else:
+                        svc = data.get("service", data)
+                    service_id = svc.get("id", "")
+                    service_url = svc.get("url", "")
+                    if service_id:
+                        state["render_service_id"] = service_id
+                        state["render_service_url"] = service_url
+                        step_pass(f"Сервис создан: {service_url or mask(service_id)}")
+                except json.JSONDecodeError:
+                    step_fail(f"Не удалось разобрать ответ: {result['stdout'][:200]}")
+                    if not ask_yes_no("Пропустить Render?"):
+                        sys.exit(1)
+                    state["render_skipped"] = True
+                    save_state(state)
+                    return
+            else:
+                combined = result["combined"].lower()
+                if "already" in combined or "exist" in combined:
+                    step_info(f"Сервис уже существует: {service_name}")
+                    # Ещё раз ищем по имени
+                    list_result2 = run_cmd(["render", "services", "--output", "json"], timeout=15)
+                    if list_result2["ok"]:
+                        try:
+                            services = json.loads(list_result2["stdout"])
+                            for s in services:
+                                svc = s.get("service", s)
+                                if svc.get("name") == service_name:
+                                    service_id = svc.get("id", "")
+                                    service_url = svc.get("url", "")
+                                    state["render_service_id"] = service_id
+                                    state["render_service_url"] = service_url
+                                    step_pass(f"Найден существующий сервис: {service_url}")
+                                    break
+                        except json.JSONDecodeError:
+                            pass
+
+                if not service_id:
+                    step_fail(f"Не удалось создать сервис: {result['combined']}")
+                    if not ask_yes_no("Пропустить Render?"):
+                        sys.exit(1)
+                    state["render_skipped"] = True
+                    save_state(state)
+                    return
     else:
         step_pass(f"Сервис: {service_url or mask(service_id)} (из сохранённого состояния)")
 
