@@ -2,7 +2,7 @@
 
 Запуск: uv run python -m src.sandbox bootstrap install --yes
 
-Ведёт пользователя пошагово: doctor → plan → Supabase → Render → smoke → summary.
+Ведёт пользователя пошагово: doctor → plan → Supabase → Render → Telegram → smoke → summary.
 Сохраняет состояние в .bootstrap-state.json для восстановления после сбоев.
 """
 
@@ -31,8 +31,9 @@ from ..live_executor import (
 
 from .install_live_supabase import run_supabase_phase
 from .install_live_render import run_render_phase
+from .install_live_telegram import run_telegram_phase
 
-TOTAL_STEPS = 6
+TOTAL_STEPS = 7
 
 
 def run_install_live(json_mode: bool = False) -> int:
@@ -107,7 +108,8 @@ def run_install_live(json_mode: bool = False) -> int:
     print("Этапы:")
     print("  1. Supabase: логин → создание проекта → схема БД → smoke.sql")
     print("  2. Render:   логин → создание сервиса → env vars → /health проверка")
-    print("  3. Сводка и инструкции по очистке")
+    print("  3. Telegram: BotFather → webhook → smoke")
+    print("  4. Сводка и инструкции по очистке")
     print()
 
     if not ask_yes_no("Продолжить с этим планом?", default=True):
@@ -127,12 +129,16 @@ def run_install_live(json_mode: bool = False) -> int:
     step_header(4, TOTAL_STEPS, "Render: настройка")
     run_render_phase(plan, state)
 
-    # Step 5: Smoke Tests
-    step_header(5, TOTAL_STEPS, "Проверка работоспособности")
+    # Step 5: Telegram Setup
+    step_header(5, TOTAL_STEPS, "Telegram: webhook")
+    run_telegram_phase(plan, state)
+
+    # Step 6: Smoke Tests
+    step_header(6, TOTAL_STEPS, "Проверка работоспособности")
     _run_smoke_phase(plan, state)
 
-    # Step 6: Summary & Cleanup
-    step_header(6, TOTAL_STEPS, "Сводка и очистка")
+    # Step 7: Summary & Cleanup
+    step_header(7, TOTAL_STEPS, "Сводка и очистка")
     _print_summary(plan, state)
 
     return 0
@@ -185,6 +191,11 @@ def _print_summary(plan, state: dict) -> None:
     if state.get("health_ok"):
         print("  /health:           OK")
 
+    if state.get("webhook_verified"):
+        print(f"  Telegram webhook:  {state.get('webhook_url', 'установлен')}")
+    elif state.get("telegram_skipped"):
+        print("  Telegram:          пропущен")
+
     print()
     print("--- Инструкции по очистке ---")
     print()
@@ -200,6 +211,11 @@ def _print_summary(plan, state: dict) -> None:
         ref = state["supabase_project_ref"]
         print(f"  # Удалить Supabase проект:")
         print(f"  supabase projects delete {ref} --yes")
+        print()
+
+    if state.get("webhook_set"):
+        print(f"  # Удалить Telegram webhook:")
+        print(f"  curl -X POST https://api.telegram.org/bot<TOKEN>/deleteWebhook")
         print()
 
     print("  # Удалить локальный файл состояния:")
