@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import asyncio
 import urllib.request
 import urllib.error
@@ -9,6 +10,16 @@ from src.sandbox.config import SandboxConfig
 from src.sandbox.agent_registry import AGENT_REGISTRY
 
 logger = logging.getLogger("sandbox.runtime")
+
+
+def _constant_time_compare(a: str, b: str) -> bool:
+    """Constant-time сравнение строк для защиты от timing attacks."""
+    if len(a) != len(b):
+        return False
+    result = 0
+    for x, y in zip(a, b):
+        result |= ord(x) ^ ord(y)
+    return result == 0
 
 # Singleton harness instance to preserve state across requests
 _harness_instance = SandboxHarness()
@@ -135,6 +146,16 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/webhook/telegram":
+            webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip()
+            if webhook_secret:
+                header_token = self.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+                if not header_token:
+                    self._send_error_response(401, "Missing secret token")
+                    return
+                if not _constant_time_compare(header_token, webhook_secret):
+                    self._send_error_response(401, "Invalid secret token")
+                    return
+
             content_length = int(self.headers.get("Content-Length", 0))
             if content_length == 0:
                 self._send_error_response(400, "Empty payload")

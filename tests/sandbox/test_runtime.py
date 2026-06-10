@@ -572,3 +572,72 @@ def test_webhook_invalid_payload_still_400(server_url):
     body = exc_info.value.read().decode("utf-8")
     data = json.loads(body)
     assert "message.text" in data["error"]
+
+
+class TestWebhookSecretValidation:
+    """T307.2: X-Telegram-Bot-Api-Secret-Token validation."""
+
+    WEBHOOK_PATH = "/webhook/telegram"
+
+    def _post_webhook(self, server_url, payload, headers=None):
+        url = f"{server_url}{self.WEBHOOK_PATH}"
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=body, headers=headers or {})
+        try:
+            resp = urllib.request.urlopen(req, timeout=5)
+            return resp.getcode(), resp.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    def _valid_start_payload(self, chat_id=1):
+        return {
+            "update_id": 1,
+            "message": {"message_id": 1, "text": "/start", "chat": {"id": chat_id}},
+        }
+
+    def test_no_secret_accepted(self, server_url, monkeypatch):
+        """Без WEBHOOK_SECRET — webhook принимается без заголовка."""
+        monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+        code, body = self._post_webhook(server_url, self._valid_start_payload())
+        assert code == 200
+
+    def test_correct_secret_accepted(self, server_url, monkeypatch):
+        """Правильный секрет в заголовке — webhook принимается."""
+        monkeypatch.setenv("WEBHOOK_SECRET", "expected-secret")
+        code, body = self._post_webhook(
+            server_url, self._valid_start_payload(),
+            headers={"X-Telegram-Bot-Api-Secret-Token": "expected-secret"},
+        )
+        assert code == 200
+
+    def test_missing_header_rejected(self, server_url, monkeypatch):
+        """Секрет настроен, заголовок отсутствует — 401."""
+        monkeypatch.setenv("WEBHOOK_SECRET", "expected-secret")
+        code, body = self._post_webhook(server_url, self._valid_start_payload())
+        assert code == 401
+        assert "Missing secret" in body
+
+    def test_wrong_secret_rejected(self, server_url, monkeypatch):
+        """Неправильный секрет в заголовке — 401."""
+        monkeypatch.setenv("WEBHOOK_SECRET", "expected-secret")
+        code, body = self._post_webhook(
+            server_url, self._valid_start_payload(),
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+        )
+        assert code == 401
+        assert "Invalid secret" in body
+
+    def test_secret_not_in_response_body(self, server_url, monkeypatch, capsys):
+        """Секрет не появляется в ответе."""
+        monkeypatch.setenv("WEBHOOK_SECRET", "my-secret-xyz")
+        _, body = self._post_webhook(
+            server_url, self._valid_start_payload(),
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+        )
+        assert "my-secret-xyz" not in body
+
+    def test_no_secret_mode_explicit_setting(self, server_url, monkeypatch):
+        """WEBHOOK_SECRET='' эквивалентно unset — no validation."""
+        monkeypatch.setenv("WEBHOOK_SECRET", "")
+        code, body = self._post_webhook(server_url, self._valid_start_payload())
+        assert code == 200
