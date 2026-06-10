@@ -102,8 +102,8 @@ def run_supabase_phase(plan, state: dict) -> None:
             return
 
         print()
-        print("  Supabase CLI может запросить database password для нового disposable проекта.")
-        print("  Введите новый пароль вручную в prompt CLI.")
+        print("  Supabase CLI запросит database password для нового disposable проекта.")
+        print("  Введите новый пароль (не оставляйте пустым — CLI может упасть).")
         print("  ADR installer не сохраняет и не выводит этот пароль.")
         print("  Не используйте prod/dev password.")
         print()
@@ -131,15 +131,32 @@ def run_supabase_phase(plan, state: dict) -> None:
                 pass
 
         if not project_ref:
-            step_fail(f"Не удалось найти проект '{project_name}' после создания.")
-            _project_create_dashboard_fallback(state, project_name)
-            project_ref = state.get("supabase_project_ref")
+            step_fail(f"Проект '{project_name}' не найден после создания. Возможно, CLI упал на пустом пароле.")
+            if ask_yes_no("Повторить создание проекта интерактивно? (нужно ввести пароль в CLI prompt)"):
+                step_info("Повторная попытка...")
+                run_interactive(create_args, timeout=300)
+                list_result = run_cmd(["supabase", "projects", "list", "--output", "json"], timeout=15)
+                if list_result["ok"]:
+                    try:
+                        projects = json.loads(list_result["stdout"])
+                        for p in projects:
+                            if p.get("name") == project_name:
+                                project_ref = p.get("id", "")
+                                state["supabase_project_ref"] = project_ref
+                                step_pass(f"Проект создан: {mask(project_ref)}")
+                                break
+                    except json.JSONDecodeError:
+                        pass
+
             if not project_ref:
-                if not ask_yes_no("Пропустить Supabase?"):
-                    sys.exit(1)
-                state["supabase_skipped"] = True
-                save_state(state)
-                return
+                _project_create_dashboard_fallback(state, project_name)
+                project_ref = state.get("supabase_project_ref")
+                if not project_ref:
+                    if not ask_yes_no("Пропустить Supabase?"):
+                        sys.exit(1)
+                    state["supabase_skipped"] = True
+                    save_state(state)
+                    return
     else:
         step_pass(f"Проект: {mask(project_ref)} (из сохранённого состояния)")
 
