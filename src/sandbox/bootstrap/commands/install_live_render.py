@@ -6,6 +6,7 @@ import urllib.request
 import urllib.error
 
 from ..env_checks import TTY_ERROR_MESSAGE
+from ..render_url_readback import verify_render_service_url
 from ..live_executor import (
     ask,
     ask_yes_no,
@@ -185,13 +186,20 @@ def run_render_phase(plan, state: dict) -> None:
                         svc = s.get("service", s)
                         if svc.get("name") == service_name:
                             service_id = svc.get("id", "")
-                            service_url = svc.get("url", "")
-                            if not service_url:
-                                service_url = f"https://{service_name}.onrender.com"
                             state["render_service_id"] = service_id
-                            state["render_service_url"] = service_url
                             state["render_service_source"] = "existing"
-                            step_pass(f"Найден существующий сервис: {service_url or mask(service_id)}")
+                            state["render_service_status"] = "service_existing"
+                            service_url = verify_render_service_url(
+                                state=state,
+                                run_cmd=run_cmd,
+                                step_info=step_info,
+                                service_id=service_id,
+                                service_name=service_name,
+                            )
+                            if service_url:
+                                step_pass(f"Найден существующий сервис: {service_url}")
+                            else:
+                                step_info(f"Сервис найден, но URL pending: {mask(service_id)}")
                             break
             except json.JSONDecodeError:
                 pass
@@ -232,15 +240,21 @@ def run_render_phase(plan, state: dict) -> None:
                     else:
                         svc = data.get("service", data)
                     service_id = svc.get("id", "")
-                    service_url = svc.get("url", "")
                     if service_id:
-                        # URL может быть пустым для свежесозданного сервиса
-                        if not service_url:
-                            service_url = f"https://{service_name}.onrender.com"
                         state["render_service_id"] = service_id
-                        state["render_service_url"] = service_url
                         state["render_service_source"] = "created_fresh"
-                        step_pass(f"Сервис создан: {service_url or mask(service_id)}")
+                        state["render_service_status"] = "service_created"
+                        service_url = verify_render_service_url(
+                            state=state,
+                            run_cmd=run_cmd,
+                            step_info=step_info,
+                            service_id=service_id,
+                            service_name=service_name,
+                        )
+                        if service_url:
+                            step_pass(f"Сервис создан: {service_url}")
+                        else:
+                            step_info(f"Сервис создан, но URL pending: {mask(service_id)}")
                 except json.JSONDecodeError:
                     step_fail(f"Не удалось разобрать ответ: {result['stdout'][:200]}")
                     if not ask_yes_no("Пропустить Render?"):
@@ -262,14 +276,21 @@ def run_render_phase(plan, state: dict) -> None:
                                     svc = s.get("service", s)
                                     if svc.get("name") == service_name:
                                         service_id = svc.get("id", "")
-                                        service_url = svc.get("url", "")
-                                        if not service_url:
-                                            service_url = f"https://{service_name}.onrender.com"
                                         state["render_service_id"] = service_id
-                                        state["render_service_url"] = service_url
                                         state["render_service_source"] = "existing"
-                                        step_pass(f"Найден существующий сервис: {service_url}")
-                                    break
+                                        state["render_service_status"] = "service_existing"
+                                        service_url = verify_render_service_url(
+                                            state=state,
+                                            run_cmd=run_cmd,
+                                            step_info=step_info,
+                                            service_id=service_id,
+                                            service_name=service_name,
+                                        )
+                                        if service_url:
+                                            step_pass(f"Найден существующий сервис: {service_url}")
+                                        else:
+                                            step_info(f"Сервис найден, но URL pending: {mask(service_id)}")
+                                        break
                         except json.JSONDecodeError:
                             pass
 
@@ -281,11 +302,18 @@ def run_render_phase(plan, state: dict) -> None:
                     save_state(state)
                     return
     else:
-        if not service_url:
-            service_url = f"https://{plan.render_web_service_name}.onrender.com"
-            state["render_service_url"] = service_url
+        if state.get("render_url_status") != "url_verified":
+            service_url = verify_render_service_url(
+                state=state,
+                run_cmd=run_cmd,
+                step_info=step_info,
+                service_id=service_id,
+                service_name=plan.render_web_service_name,
+            )
         if not state.get("render_service_source"):
             state["render_service_source"] = "existing"
+        if not state.get("render_service_status"):
+            state["render_service_status"] = "service_existing"
         step_pass(f"Сервис: {service_url or mask(service_id)} (из сохранённого состояния)")
 
     save_state(state)
@@ -326,7 +354,12 @@ def run_render_phase(plan, state: dict) -> None:
         else:
             step_fail("Сервис не ответил за 3 минуты. Проверьте статус в Render Dashboard.")
     else:
-        step_skip("URL сервиса неизвестен — пропускаем /health проверку.")
+        if state.get("render_url_status") != "url_pending":
+            state["render_url_status"] = "url_missing_or_unverified"
+        state["render_url_verified"] = False
+        step_skip("URL сервиса не подтверждён Render API/read-back — пропускаем /health проверку.")
+        print("  Safe next step: дождитесь URL в Render Dashboard и перезапустите installer.")
+        print("  Telegram webhook phase по умолчанию заблокирована до url_verified.")
 
     # Очистка stale skip-флагов при успешном завершении фазы
     state.pop("render_skipped", None)

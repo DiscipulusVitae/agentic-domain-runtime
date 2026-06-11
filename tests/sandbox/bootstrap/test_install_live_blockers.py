@@ -136,6 +136,8 @@ class TestBlockerTelegramFailSafe:
         state = {
             "render_service_id": "srv-test",
             "render_service_url": "https://test.onrender.com",
+            "render_url_status": "url_verified",
+            "render_url_verified": True,
             "_telegram_token": "test-token-123",
         }
 
@@ -637,6 +639,8 @@ class TestStaleSkipFlags:
         state = {
             "render_service_url": "https://test.onrender.com",
             "render_service_id": "srv-test",
+            "render_url_status": "url_verified",
+            "render_url_verified": True,
             "_telegram_token": "test-token",
         }
 

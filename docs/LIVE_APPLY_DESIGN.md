@@ -186,6 +186,8 @@ If a step fails during `Apply` or `Verify`, the system must attempt a controlled
 * **Strategy**:
   - If the Web Service fails to deploy, delete the created service instance using Render REST API.
   - If updating an existing service, restore the previous deployment build version or rollback the environment variables to their cached preflight state.
+  - Treat service URL as verified only after Render API/CLI read-back returns an actual URL. Do not infer `https://<service>.onrender.com` from the service name.
+  - If URL read-back stays empty within bounded polling, preserve service identity in state and mark the URL as pending; downstream Telegram webhook setup must remain blocked by default.
 
 ### 3. Telegram Webhook
 * **Risk**: Webhook points to a broken or non-existent endpoint, disabling the bot.
@@ -212,7 +214,7 @@ Live cleanup must not report success from delete commands alone. Each external r
 After resources are applied, the `Verify` phase validates the setup with a deterministic contract:
 
 1. **Local and Cloud Health Probe**:
-   - Query `/health` on the Render web service URL.
+   - Query `/health` on the verified Render web service URL.
    - Expect: `HTTP 200 OK` with JSON payload list of active agents (e.g. `{"status": "ok", "agents": ["butler", "kitchen", "books", "health"]}`).
    - For Supabase + Render wiring, `/health` must also report whether persistence is `memory` or `supabase`, whether DB env is configured, and whether a safe DB readiness check passed.
 2. **Synthetic Message Webhook Test**:

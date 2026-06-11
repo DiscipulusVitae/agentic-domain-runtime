@@ -351,6 +351,7 @@ Documented in detail in **[Supabase + Render Wiring Runbook](SUPABASE_RENDER_WIR
 3. Render service cleanup uses REST API (`DELETE /v1/services/{id}`) — Render CLI does not expose a native delete command.
 4. Free-tier Render with Docker runtime does not require a credit card.
 5. Remote `smoke.sql` and DB-backed `/health` are different proof layers and should not be conflated.
+6. Render service URLs can be delayed in initial API/CLI responses. The live installer must read back a real `url` from Render before treating the service as webhook-ready; it does not infer `https://<service>.onrender.com` as success.
 
 ### Illustrative Sequence
 
@@ -367,6 +368,7 @@ Supabase:
 Render:
   render login
   render services create <label> --runtime docker --plan free
+  render services --output json  # read back verified service url
   curl https://<service>.onrender.com/health
 
 Cleanup:

@@ -10,6 +10,10 @@ from src.sandbox.bootstrap.commands.install_live_render import (
     ADR_REPO_BRANCH,
     run_render_phase,
 )
+from src.sandbox.bootstrap.render_url_readback import (
+    service_url,
+    verify_render_service_url,
+)
 from src.sandbox.bootstrap.commands.install_live import _run_smoke_phase
 
 
@@ -202,6 +206,7 @@ class TestRenderExistingService:
         }
         plan = MagicMock()
         plan.render_web_service_name = "adr-test-svc"
+        monkeypatch.setattr("time.sleep", lambda *_: None)
 
         with patch("src.sandbox.bootstrap.commands.install_live_render.save_state"):
             with patch("src.sandbox.bootstrap.commands.install_live_render.ask_yes_no",
@@ -222,6 +227,9 @@ class TestRenderExistingService:
                         run_render_phase(plan, state)
 
         assert state.get("render_service_source") == "existing"
+        assert state.get("render_service_status") == "service_existing"
+        assert state.get("render_url_status") == "url_verified"
+        assert state.get("render_url_verified") is True
         assert state.get("render_service_id") == "srv-existing-42"
 
     def test_fresh_created_marked_as_created_fresh(self, monkeypatch):
@@ -243,6 +251,7 @@ class TestRenderExistingService:
         }
         plan = MagicMock()
         plan.render_web_service_name = "adr-fresh-svc"
+        monkeypatch.setattr("time.sleep", lambda *_: None)
 
         with patch("src.sandbox.bootstrap.commands.install_live_render.save_state"):
             with patch("src.sandbox.bootstrap.commands.install_live_render.ask_yes_no",
@@ -263,7 +272,108 @@ class TestRenderExistingService:
                         run_render_phase(plan, state)
 
         assert state.get("render_service_source") == "created_fresh"
+        assert state.get("render_service_status") == "service_created"
         assert state.get("render_service_id") == "srv-new-99"
+
+
+class TestRenderUrlReadback:
+    """Render URL read-back: no inferred URL, bounded pending states."""
+
+    def test_service_url_accepts_only_actual_url(self):
+        """_service_url не создаёт fallback из имени сервиса."""
+        assert service_url({"name": "adr-test-svc", "url": "https://actual.onrender.com"}) == "https://actual.onrender.com"
+        assert service_url({"name": "adr-test-svc", "url": ""}) == ""
+        assert service_url({"name": "adr-test-svc"}) == ""
+        assert service_url({"name": "adr-test-svc", "url": "adr-test-svc.onrender.com"}) == ""
+
+    def test_url_immediately_available_verified(self, monkeypatch):
+        """Render list сразу отдаёт url → state становится url_verified."""
+        def fake_run_cmd(args, **kw):
+            return {
+                "ok": True,
+                "stdout": json.dumps([
+                    {"service": {"id": "srv-1", "name": "adr-svc", "url": "https://adr-svc.onrender.com"}}
+                ]),
+                "combined": "",
+            }
+
+        state = {}
+        url = verify_render_service_url(
+            state=state,
+            run_cmd=fake_run_cmd,
+            step_info=lambda *_: None,
+            service_id="srv-1",
+            service_name="adr-svc",
+            attempts=2,
+            interval_seconds=0,
+        )
+
+        assert url == "https://adr-svc.onrender.com"
+        assert state["render_service_url"] == url
+        assert state["render_url_status"] == "url_verified"
+        assert state["render_url_verified"] is True
+
+    def test_url_appears_after_retry_verified(self, monkeypatch):
+        """Render url появляется после retry → verified без inferred fallback."""
+        calls = {"n": 0}
+
+        def fake_run_cmd(args, **kw):
+            calls["n"] += 1
+            url = "" if calls["n"] == 1 else "https://adr-late.onrender.com"
+            return {
+                "ok": True,
+                "stdout": json.dumps([
+                    {"service": {"id": "srv-2", "name": "adr-late", "url": url}}
+                ]),
+                "combined": "",
+            }
+
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+
+        state = {}
+        url = verify_render_service_url(
+            state=state,
+            run_cmd=fake_run_cmd,
+            step_info=lambda *_: None,
+            service_id="srv-2",
+            service_name="adr-late",
+            attempts=3,
+            interval_seconds=0,
+        )
+
+        assert calls["n"] == 2
+        assert url == "https://adr-late.onrender.com"
+        assert state["render_url_status"] == "url_verified"
+
+    def test_url_missing_preserves_state_as_pending(self, monkeypatch):
+        """Если Render не отдаёт url, state остаётся recoverable и без inferred URL."""
+        def fake_run_cmd(args, **kw):
+            return {
+                "ok": True,
+                "stdout": json.dumps([
+                    {"service": {"id": "srv-3", "name": "adr-empty", "url": ""}}
+                ]),
+                "combined": "",
+            }
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+
+        state = {"render_service_id": "srv-3", "render_service_status": "service_created"}
+        url = verify_render_service_url(
+            state=state,
+            run_cmd=fake_run_cmd,
+            step_info=lambda *_: None,
+            service_id="srv-3",
+            service_name="adr-empty",
+            attempts=2,
+            interval_seconds=0,
+        )
+
+        assert url == ""
+        assert "render_service_url" not in state
+        assert state["render_service_id"] == "srv-3"
+        assert state["render_url_status"] == "url_pending"
+        assert state["render_url_verified"] is False
+        assert "adr-empty.onrender.com" not in json.dumps(state)
 
 
 def _fake_run_cmd(args, **kw):

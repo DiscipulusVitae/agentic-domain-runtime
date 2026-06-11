@@ -24,7 +24,6 @@ from ..telegram_identity import (
     validate_reviewer_bot_identity,
     validate_reviewer_token_source,
 )
-
 TELEGRAM_API = "https://api.telegram.org"
 
 
@@ -180,16 +179,22 @@ def run_telegram_phase(plan, state: dict) -> None:
     save_state(state)
 
     service_url = state.get("render_service_url")
+    render_url_status = state.get("render_url_status")
+    render_url_verified = state.get("render_url_verified") is True
+    render_url_override = state.get("render_url_override_accepted") is True
     render_skipped = state.get("render_skipped")
+    url_not_verified = render_url_status != "url_verified" or not render_url_verified
 
-    if not service_url or render_skipped:
+    if not service_url or render_skipped or (url_not_verified and not render_url_override):
         reasons = []
         if not service_url:
             reasons.append("render_service_url отсутствует")
         if render_skipped:
             reasons.append("render_skipped=True (stale флаг?)")
+        if url_not_verified and not render_url_override:
+            reasons.append(f"Render URL не подтверждён read-back ({render_url_status or 'unknown'})")
         step_info(f"Причина пропуска: {', '.join(reasons)}")
-        step_skip("Render URL недоступен — webhook setup невозможен.")
+        step_skip("Render URL не подтверждён — webhook setup заблокирован.")
         if not ask_yes_no("Продолжить без webhook?"):
             sys.exit(1)
         state["telegram_skipped"] = True
@@ -197,6 +202,8 @@ def run_telegram_phase(plan, state: dict) -> None:
         save_state(state)
         return
 
+    if render_url_override:
+        step_info("Render URL используется через явный Live Mutation Gate override.")
     webhook_secret = secrets.token_hex(32)
     state["webhook_secret_sha256"] = _sha256_hex(webhook_secret)
 

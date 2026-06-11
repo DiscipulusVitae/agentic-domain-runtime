@@ -129,6 +129,19 @@ When using Docker as a cleanroom:
 
 The temporary Render service may receive only reviewer/test Supabase values for this proof. Never wire private production Supabase values into the public ADR runtime.
 
+### Render URL Read-Back
+
+Render may return an empty service URL immediately after service creation or during early list/read-back calls. The installer therefore treats the URL as a verified fact only when Render CLI/API read-back returns a non-empty `url` field.
+
+Required state semantics:
+
+- `render_service_status=service_created|service_existing`: service identity is known and cleanup can target it.
+- `render_url_status=url_verified`: a real Render URL was read back and may be used for `/health` and Telegram webhook wiring.
+- `render_url_status=url_pending|url_missing_or_unverified`: service identity is preserved, but webhook setup remains blocked by default.
+- `render_url_override_accepted=true`: exceptional Live Mutation Gate override, set only after explicit human acceptance of an unverified URL.
+
+The installer must not infer `https://<service>.onrender.com` from the service name. If URL verification stays pending, safe next steps are to wait for Render Dashboard/API to expose the URL, rerun the installer, or perform a Live Mutation Gate override with explicit human acceptance.
+
 Forbidden in repo artifacts:
 
 - Supabase access tokens;
