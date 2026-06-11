@@ -17,7 +17,9 @@ def service_payload(item: dict) -> dict:
 
 def service_url(service: dict) -> str:
     """Извлекает URL только из фактического Render read-back payload."""
-    url = service.get("url", "") if isinstance(service, dict) else ""
+    url = service.get("url")
+    if not url and "serviceDetails" in service:
+        url = service.get("serviceDetails", {}).get("url")
     if not isinstance(url, str):
         return ""
     url = url.strip()
