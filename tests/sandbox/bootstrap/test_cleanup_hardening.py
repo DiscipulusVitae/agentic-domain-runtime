@@ -1,5 +1,6 @@
 """Тесты cleanup hardening: exit codes, idempotency, failure semantics, preview/json."""
 import json
+import os
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +10,7 @@ from src.sandbox.bootstrap.commands.install_live_cleanup import (
     STATUS_RENDER_DELETE_FAILED,
     STATUS_RENDER_DELETE_PENDING,
     STATUS_RENDER_MANUAL_REQUIRED,
+    _resolve_render_api_key,
 )
 
 
@@ -827,3 +829,58 @@ class TestRenderCleanupNewStatusCodes:
 
         assert result == 0
         assert "render_service_id" not in final_state
+
+
+class TestRenderApiKeyCleanroomPolicy:
+    """T321: _resolve_render_api_key в reviewer proof mode — cleanroom vs host."""
+
+    def test_reviewer_proof_explicit_key_allowed(self, monkeypatch):
+        """ADR_REVIEWER_PROOF=1 + RENDER_API_KEY → accepted."""
+        monkeypatch.setenv("ADR_REVIEWER_PROOF", "1")
+        monkeypatch.setenv("RENDER_API_KEY", "test-api-key-123")
+        key, source = _resolve_render_api_key()
+        assert key == "test-api-key-123"
+        assert source == "env:RENDER_API_KEY"
+
+    def test_reviewer_proof_cleanroom_config_accepted(self, monkeypatch, tmp_path):
+        """ADR_REVIEWER_PROOF=1 + cleanroom HOME + cli.yaml → accepted."""
+        monkeypatch.setenv("ADR_REVIEWER_PROOF", "1")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".render").mkdir()
+        (tmp_path / ".render" / "cli.yaml").write_text("version: 1\napi:\n    key: cli-test-key\n")
+
+        key, source = _resolve_render_api_key()
+        assert key == "cli-test-key"
+        assert "cleanroom" in source
+
+    def test_reviewer_proof_host_config_blocked(self, monkeypatch):
+        """ADR_REVIEWER_PROOF=1 + real home cli.yaml → blocked/absent."""
+        monkeypatch.setenv("ADR_REVIEWER_PROOF", "1")
+        key, source = _resolve_render_api_key()
+        if os.path.exists(os.path.expanduser("~/.render/cli.yaml")):
+            assert key is None
+            assert "blocked" in source
+        else:
+            assert key is None
+            assert source == "absent"
+
+    def test_non_reviewer_proof_allows_host_config(self, monkeypatch, tmp_path):
+        """Без ADR_REVIEWER_PROOF host config работает."""
+        monkeypatch.delenv("ADR_REVIEWER_PROOF", raising=False)
+        monkeypatch.delenv("RENDER_API_KEY", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / ".render").mkdir()
+        (tmp_path / ".render" / "cli.yaml").write_text("version: 1\napi:\n    key: host-key-456\n")
+
+        key, source = _resolve_render_api_key()
+        assert key == "host-key-456"
+        assert source == "host:cli.yaml"
+
+    def test_no_config_no_key_returns_absent(self, monkeypatch, tmp_path):
+        """Нет ни env, ни cli.yaml → absent."""
+        monkeypatch.delenv("RENDER_API_KEY", raising=False)
+        monkeypatch.delenv("ADR_REVIEWER_PROOF", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        key, source = _resolve_render_api_key()
+        assert key is None
+        assert source == "absent"
