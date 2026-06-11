@@ -60,6 +60,67 @@ class TestBlockerTelegramNoTokenInArgv:
         assert "WEBHOOK_SECRET" in put_keys
         assert calls[1].get_header("Authorization") == "Bearer rk_test_fake"
 
+    def test_env_vars_preserves_nested_envvar_shape(self, monkeypatch):
+        """T320 Fix 1: GET ответ с вложенным envVar сохраняет существующие переменные."""
+        state = {"render_service_id": "srv-abc"}
+        calls = []
+
+        get_body = json.dumps([
+            {"envVar": {"key": "SUPABASE_URL", "value": "https://db.co"}},
+            {"envVar": {"key": "ADR_PERSISTENCE", "value": "supabase"}},
+        ]).encode()
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(req)
+            resp = MagicMock()
+            resp.status = 200
+            if req.get_method() == "GET":
+                resp.read.return_value = get_body
+            else:
+                resp.read.return_value = b"[]"
+            return resp
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
+            lambda: "rk_test",
+        )
+        with patch("urllib.request.urlopen", fake_urlopen):
+            result = _set_render_env_vars(state, "token-123", "secret-456")
+
+        assert result is True
+        put_body = json.loads(calls[1].data.decode())
+        put_keys = {v["key"] for v in put_body}
+        assert "SUPABASE_URL" in put_keys
+        assert "ADR_PERSISTENCE" in put_keys
+        assert "TELEGRAM_BOT_TOKEN" in put_keys
+        assert "WEBHOOK_SECRET" in put_keys
+
+    def test_env_vars_handles_malformed_non_dict(self, monkeypatch):
+        """GET ответ с не-словарём в списке — обрабатывается без падения."""
+        state = {"render_service_id": "srv-abc"}
+        get_body = json.dumps([
+            {"envVar": {"key": "SUPABASE_URL", "value": "https://db.co"}},
+            "not_a_dict",
+        ]).encode()
+
+        def fake_urlopen(req, timeout=None):
+            resp = MagicMock()
+            resp.status = 200
+            if req.get_method() == "GET":
+                resp.read.return_value = get_body
+            else:
+                resp.read.return_value = b"[]"
+            return resp
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.discover_render_api_key",
+            lambda: "rk_test",
+        )
+        with patch("urllib.request.urlopen", fake_urlopen):
+            result = _set_render_env_vars(state, "token-123", "secret-456")
+
+        assert result is True  # не падает
+
     def test_no_token_in_command_construction(self):
         """В коде install_live_telegram не должно быть subprocess-вызовов с токеном в аргументах."""
         import inspect

@@ -375,6 +375,21 @@ class TestRenderUrlReadback:
         assert state["render_url_verified"] is False
         assert "adr-empty.onrender.com" not in json.dumps(state)
 
+    def test_nested_service_details_url_accepted(self):
+        """T320 Fix 4: вложенный serviceDetails.url принимается."""
+        svc = {"name": "adr-svc", "serviceDetails": {"url": "https://adr-svc.onrender.com"}}
+        assert service_url(svc) == "https://adr-svc.onrender.com"
+
+    def test_nested_url_takes_precedence_over_flat(self):
+        """Вложенный url имеет приоритет, если плоский отсутствует."""
+        svc = {"name": "adr-svc", "url": "", "serviceDetails": {"url": "https://adr-svc.onrender.com"}}
+        assert service_url(svc) == "https://adr-svc.onrender.com"
+
+    def test_nested_url_no_service_details_still_works(self):
+        """Без serviceDetails — плоский url работает как раньше."""
+        svc = {"name": "adr-svc", "url": "https://adr-svc.onrender.com"}
+        assert service_url(svc) == "https://adr-svc.onrender.com"
+
 
 def _fake_run_cmd(args, **kw):
     """Mock: returns existing service in list."""

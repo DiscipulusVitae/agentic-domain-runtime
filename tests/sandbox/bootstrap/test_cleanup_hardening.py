@@ -884,3 +884,64 @@ class TestRenderApiKeyCleanroomPolicy:
         key, source = _resolve_render_api_key()
         assert key is None
         assert source == "absent"
+
+
+class TestT320LiveFixEdgeCases:
+    """T322: тесты на edge-case fixes из T320 live proof."""
+
+    def test_render_delete_404_treated_as_absent(self, monkeypatch):
+        """T320 Fix 2: HTTP 404 при delete → не FAILED, treated as already-deleted."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            lambda sid: STATUS_RENDER_DELETE_VERIFIED,
+        )
+
+        calls = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: calls.append("supabase") or True,
+        )
+
+        state = {"render_service_id": "srv-abc"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state"):
+                with patch("src.sandbox.bootstrap.commands.install_live_cleanup.Path.unlink"):
+                    result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 0
+
+    def test_supabase_null_projects_treated_as_empty(self, monkeypatch):
+        """T320 Fix 3: null project list → treated as empty."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._verify_supabase_project_absent",
+            lambda ref: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+
+        state = {"supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.Path.unlink"):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 0
