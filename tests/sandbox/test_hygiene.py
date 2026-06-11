@@ -5,6 +5,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ALLOWLIST = {
     # "relative/path.py": "short architect-approved reason and follow-up task id"
+    "src/sandbox/bootstrap/commands/install_live_cleanup.py":
+        "T317+T321: granular Render delete statuses, _resolve_render_api_key, cleanroom policy. Split to T324.",
+    "src/sandbox/bootstrap/commands/install_live_telegram.py":
+        "T305+T320: token source guard, Render env-var merge GET→PUT. Split to T324.",
+    "src/sandbox/runtime.py":
+        "T307.2+T318: webhook secret validation, Telegram sendMessage for all paths. Split to T324.",
+    "tests/sandbox/bootstrap/test_cleanup_hardening.py":
+        "T310+T317+T321+T322: comprehensive cleanup tests (31 tests). Split to T324.",
+    "tests/sandbox/bootstrap/test_install_live_blockers.py":
+        "T305+T322: env-var guard tests, nested envVar preservation. Split to T324.",
+    "tests/sandbox/test_runtime.py":
+        "T307.2+T318: webhook + sendMessage tests (27 tests). Split to T324.",
 }
 
 def count_lines(path: Path) -> int:
