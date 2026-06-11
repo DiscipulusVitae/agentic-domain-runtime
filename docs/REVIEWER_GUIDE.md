@@ -29,16 +29,14 @@ Every step in the default reviewer path comes with the following safety guarante
 
 ## 3. Live Alpha / Human-Authorized Boundaries
 
-Path C alpha (`bootstrap install --yes`) has been implemented and proven on Win+WSL2 with caveats. The following is proven:
+Path C alpha (`bootstrap install --yes`) has been implemented and proven on Win+WSL2 and cleanroom live proof (T314). The following is proven:
 
 * **Supabase live path**: disposable project creation, schema push, config push, seed, smoke — all through guided wizard.
-* **Existing ADR-compatible Render service**: `/health` HTTP 200 with Supabase persistence — proven on existing service.
+* **Fresh Render ADR service creation**: Dockerfile deploy strategy, `/health` HTTP 200 with Supabase persistence — proven on disposable Render.
 * **Telegram webhook**: BotFather → setWebhook → getWebhookInfo → synthetic smoke — proven.
-
-Pending before full deploy claim:
-* **Fresh Render ADR service creation**: Dockerfile/image/native deploy strategy to create a Render service from scratch through the installer.
-* **Cleanup live proof**: guided `bootstrap cleanup --live` wizard validation on live resources.
-* **Telegram `/start` response**: visible bot reply to user messages in Telegram chat.
+* **Telegram visible reply**: runtime sends `sendMessage` when `TELEGRAM_BOT_TOKEN` is configured (T318). Without token: safe skip, HTTP 200.
+* **Cleanup live proof**: guided `bootstrap cleanup --live` wizard. Render deletion via REST API fallback when CLI does not support delete (T317). Read-back verification for all resources.
+* **Cleanroom isolation**: `HOME=/tmp/reviewer_proof_home` prevents reuse of host CLI profiles.
 
 The architecture for future production use is defined in **[Live Apply Design Spec](LIVE_APPLY_DESIGN.md)**, and the first live boundary package is in **[First Live GO Package](FIRST_LIVE_GO_PACKAGE.md)**. Any live mutation must first satisfy the **[Operator Cleanroom](OPERATOR_CLEANROOM.md)** account-isolation gate.
 
