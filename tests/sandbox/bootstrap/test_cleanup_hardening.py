@@ -3,7 +3,13 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
+from src.sandbox.bootstrap.commands.install_live_cleanup import (
+    run_live_cleanup,
+    STATUS_RENDER_DELETE_VERIFIED,
+    STATUS_RENDER_DELETE_FAILED,
+    STATUS_RENDER_DELETE_PENDING,
+    STATUS_RENDER_MANUAL_REQUIRED,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -96,7 +102,7 @@ class TestCleanupSuccessPath:
         # Mock _delete_render_service → success
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
-            lambda sid: True,
+            lambda sid: STATUS_RENDER_DELETE_VERIFIED,
         )
         # Mock _delete_supabase_project → success
         monkeypatch.setattr(
@@ -146,7 +152,7 @@ class TestCleanupPartialFailure:
         )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
-            lambda sid: True,  # render succeeds
+            lambda sid: STATUS_RENDER_DELETE_VERIFIED,  # render succeeds
         )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
@@ -306,7 +312,7 @@ class TestCleanupPartialFailure:
 
         def track_delete_render(sid):
             cleanup_calls.append("render")
-            return True
+            return STATUS_RENDER_DELETE_VERIFIED
 
         def track_delete_supabase(ref):
             cleanup_calls.append("supabase")
@@ -393,13 +399,8 @@ class TestCleanupPartialFailure:
         )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
-            lambda sid: True,
+            lambda sid: STATUS_RENDER_DELETE_PENDING,
         )
-        monkeypatch.setattr(
-            "src.sandbox.bootstrap.commands.install_live_cleanup._verify_render_service_absent",
-            lambda sid: False,
-        )
-
         supabase_calls = []
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
@@ -532,7 +533,7 @@ class TestCleanupIdempotency:
         calls = []
         def track_delete_render(sid):
             calls.append("render")
-            return True
+            return STATUS_RENDER_DELETE_VERIFIED
 
         def track_delete_supabase(ref):
             calls.append("supabase")
@@ -631,7 +632,7 @@ class TestCleanupPreviewJson:
         )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
-            lambda sid: True,
+            lambda sid: STATUS_RENDER_DELETE_VERIFIED,
         )
         monkeypatch.setattr(
             "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
@@ -651,3 +652,178 @@ class TestCleanupPreviewJson:
 
         assert result == 0
         assert captured_token == "abc123_super_secret_token_unused"
+
+
+class TestRenderCleanupNewStatusCodes:
+    """T317: новое поведение _delete_render_service с детализированными статусами."""
+
+    def test_delete_verified_clears_state_and_allows_supabase(self, monkeypatch):
+        """STATUS_RENDER_DELETE_VERIFIED → state очищен, Supabase удаляется."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            lambda sid: STATUS_RENDER_DELETE_VERIFIED,
+        )
+
+        supabase_called = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: supabase_called.append(ref) or True,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"render_service_id": "srv-abc", "supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 0
+        assert "render_service_id" not in final_state
+        assert "supabase_project_ref" not in final_state
+        assert supabase_called == ["ref-xyz"]
+
+    def test_manual_required_preserves_state_and_skips_supabase(self, monkeypatch):
+        """STATUS_RENDER_MANUAL_REQUIRED → state сохранён, Supabase пропущен."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            lambda sid: STATUS_RENDER_MANUAL_REQUIRED,
+        )
+
+        supabase_called = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: supabase_called.append(ref) or True,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"render_service_id": "srv-abc", "supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1
+        assert final_state["render_service_id"] == "srv-abc"
+        assert final_state["supabase_project_ref"] == "ref-xyz"
+        assert supabase_called == []
+
+    def test_delete_failed_preserves_state_and_skips_supabase(self, monkeypatch):
+        """STATUS_RENDER_DELETE_FAILED → state сохранён, Supabase пропущен."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            lambda sid: STATUS_RENDER_DELETE_FAILED,
+        )
+
+        supabase_called = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: supabase_called.append(ref) or True,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"render_service_id": "srv-abc", "supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1
+        assert final_state["render_service_id"] == "srv-abc"
+        assert supabase_called == []
+
+    def test_delete_pending_preserves_state_and_skips_supabase(self, monkeypatch):
+        """STATUS_RENDER_DELETE_PENDING → read-back не пройден, state сохранён."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            lambda sid: STATUS_RENDER_DELETE_PENDING,
+        )
+
+        supabase_called = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: supabase_called.append(ref) or True,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"render_service_id": "srv-abc", "supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1
+        assert final_state["render_service_id"] == "srv-abc"
+        assert supabase_called == []
+
+    def test_render_delete_verified_without_supabase(self, monkeypatch):
+        """Render-only state: STATUS_RENDER_DELETE_VERIFIED → exit 0."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            lambda sid: STATUS_RENDER_DELETE_VERIFIED,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"render_service_id": "srv-abc"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                with patch("src.sandbox.bootstrap.commands.install_live_cleanup.Path.unlink"):
+                    result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 0
+        assert "render_service_id" not in final_state

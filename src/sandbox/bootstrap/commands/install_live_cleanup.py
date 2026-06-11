@@ -5,6 +5,7 @@
 """
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -23,7 +24,6 @@ from ..live_executor import (
     step_info,
     save_state,
     mask,
-    discover_render_api_key,
 )
 from ..telegram_identity import validate_reviewer_bot_identity
 
@@ -35,6 +35,12 @@ STATUS_FAILED = "failed"
 STATUS_PENDING = "pending_verification"
 STATUS_MANUAL = "manual_required"
 STATUS_SKIPPED_RENDER_FAILED = "skipped_render_failed"
+
+# Render-specific статусы — детализируют результат удаления Render сервиса
+STATUS_RENDER_DELETE_VERIFIED = "render_delete_verified"
+STATUS_RENDER_DELETE_FAILED = "render_delete_failed"
+STATUS_RENDER_DELETE_PENDING = "render_delete_pending_verification"
+STATUS_RENDER_MANUAL_REQUIRED = "render_manual_required"
 
 
 def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
@@ -145,24 +151,30 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
     if service_id:
         step_header(2, 4, "Render сервис")
         sid = state["render_service_id"]
-        if not _delete_render_service(sid):
-            step_fail(f"Не удалось удалить Render сервис {mask(sid)}.")
-            print(f"  Dashboard: https://dashboard.render.com/web/{sid}/settings")
-            print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
-            cleanup_results["render"] = STATUS_FAILED
-        elif _verify_render_service_absent(sid):
+        render_status = _delete_render_service(sid)
+
+        if render_status == STATUS_RENDER_DELETE_VERIFIED:
             step_pass(f"Render сервис {mask(sid)} удалён и подтверждён read-back проверкой.")
             state.pop("render_service_id", None)
             state.pop("render_service_url", None)
-            cleanup_results["render"] = STATUS_VERIFIED
-        else:
-            step_fail(f"Render сервис {mask(sid)} не подтверждён как удалённый. State сохранён.")
+            cleanup_results["render"] = render_status
+        elif render_status == STATUS_RENDER_DELETE_PENDING:
+            step_fail(f"Render сервис {mask(sid)}: delete отправлен, но read-back не подтверждает удаление. State сохранён.")
+            print(f"  Dashboard: https://dashboard.render.com/web/{sid}/settings")
+            cleanup_results["render"] = render_status
+        elif render_status == STATUS_RENDER_MANUAL_REQUIRED:
+            step_fail(f"Render сервис {mask(sid)}: требуется ручное удаление (нет API key).")
             print(f"  Dashboard: https://dashboard.render.com/web/{sid}/settings")
             print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
-            cleanup_results["render"] = STATUS_PENDING
+            cleanup_results["render"] = render_status
+        else:
+            step_fail(f"Не удалось удалить Render сервис {mask(sid)}.")
+            print(f"  Dashboard: https://dashboard.render.com/web/{sid}/settings")
+            print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
+            cleanup_results["render"] = render_status
 
     # Step 3: Supabase (только если Render удалён или не было Render)
-    render_failed = cleanup_results.get("render") not in (None, STATUS_VERIFIED)
+    render_failed = cleanup_results.get("render") not in (None, STATUS_RENDER_DELETE_VERIFIED)
     if project_ref and not render_failed:
         step_header(3, 4, "Supabase проект")
         if not _delete_supabase_project(project_ref):
@@ -188,7 +200,10 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
     # Step 4: State file (conditional)
     step_header(4, 4, "Локальное состояние")
 
-    failed_resources = {k: v for k, v in cleanup_results.items() if v != STATUS_VERIFIED}
+    failed_resources = {
+        k: v for k, v in cleanup_results.items()
+        if v not in (STATUS_VERIFIED, STATUS_RENDER_DELETE_VERIFIED)
+    }
     all_cleared = not failed_resources
 
     if all_cleared:
@@ -217,6 +232,10 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             STATUS_PENDING: "pending verification",
             STATUS_MANUAL: "manual required",
             STATUS_SKIPPED_RENDER_FAILED: "skipped (Render not verified)",
+            STATUS_RENDER_DELETE_VERIFIED: "render verified",
+            STATUS_RENDER_DELETE_FAILED: "render failed",
+            STATUS_RENDER_DELETE_PENDING: "render pending verification",
+            STATUS_RENDER_MANUAL_REQUIRED: "render manual required",
         }
         label = label_map.get(status, status)
         print(f"  {resource:<15} {label}")
@@ -337,40 +356,110 @@ def _verify_telegram_webhook_empty(token: str, expected_username: str | None = N
     return result.get("url", "") == ""
 
 
-def _delete_render_service(service_id: str) -> bool:
-    """Удаляет Render сервис: сначала CLI, затем REST API с авторизацией."""
-    result = run_cmd(
-        ["render", "services", "delete", service_id, "--confirm"],
-        timeout=30,
+def _resolve_render_api_key() -> tuple[str | None, str]:
+    """Возвращает (api_key, source_description).
+
+    Приоритет источников:
+      1. RENDER_API_KEY из переменной окружения — trusted explicit source.
+      2. ~/.render/cli.yaml — host config, допустим только НЕ в reviewer proof mode.
+      3. ~/.render/api-key, ~/.config/render/auth.json — fallback host paths.
+
+    В reviewer proof mode host config считается небезопасным:
+    агент мог использовать чужой CLI-профиль.
+    """
+    env_key = os.environ.get("RENDER_API_KEY")
+    if env_key:
+        return env_key.strip(), "env:RENDER_API_KEY"
+
+    # Проверяем, не запущен ли reviewer proof
+    reviewer_proof = (
+        os.environ.get("ADR_REVIEWER_PROOF", "").lower() in ("1", "true", "yes")
     )
-    if result["ok"]:
-        return True
 
-    # Fallback: REST API с Bearer авторизацией
-    api_key = discover_render_api_key()
-    if api_key:
-        print("  Render CLI не сработал — пробую REST API...")
+    yaml_file = os.path.expanduser("~/.render/cli.yaml")
+    try:
+        with open(yaml_file) as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped.startswith("key:"):
+                    key = stripped[4:].strip().strip('"').strip("'")
+                    if reviewer_proof:
+                        step_info("Render API key обнаружен в host config, но reviewer proof mode — пропущен.")
+                        return None, "host_config_blocked_reviewer_proof"
+                    return key, "host:cli.yaml"
+    except OSError:
+        pass
+
+    for path_desc in [
+        ("~/.render/api-key", os.path.expanduser("~/.render/api-key")),
+        ("~/.config/render/auth.json", os.path.expanduser("~/.config/render/auth.json")),
+    ]:
+        desc, full_path = path_desc
         try:
-            req = urllib.request.Request(
-                f"{RENDER_API}/services/{service_id}",
-                method="DELETE",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            resp = urllib.request.urlopen(req, timeout=15)
-            return resp.status in (200, 204)
-        except urllib.error.HTTPError as e:
-            step_info(f"REST API: HTTP {e.code}")
-        except Exception as e:
-            step_info(f"REST API: {e}")
+            with open(full_path) as f:
+                content = f.read().strip()
+                if content:
+                    if reviewer_proof:
+                        step_info(f"Render API key обнаружен в {desc}, но reviewer proof mode — пропущен.")
+                        continue
+                    return content, f"host:{desc}"
+        except OSError:
+            pass
 
-    # Оба пути не сработали — инструкции
-    step_info("Render CLI и REST API не сработали.")
-    return False
+    return None, "absent"
+
+
+def _delete_render_service(service_id: str) -> str:
+    """Удаляет Render сервис через REST API (Render CLI v2.20+ не имеет 'services delete').
+
+    Returns один из render-специфичных статусов:
+      - STATUS_RENDER_DELETE_VERIFIED
+      - STATUS_RENDER_DELETE_FAILED
+      - STATUS_RENDER_MANUAL_REQUIRED
+      - STATUS_RENDER_DELETE_PENDING
+    """
+    api_key, source = _resolve_render_api_key()
+
+    if not api_key:
+        if source == "absent":
+            step_info("RENDER_API_KEY не задан, host config не найден.")
+            step_info(
+                "Сгенерируйте Personal Access Token в Render Dashboard: "
+                "Account Settings → API Keys → Create API Key."
+            )
+        else:
+            step_info(f"Render API key недоступен (source: {source}).")
+        step_info(f"Ручное удаление: https://dashboard.render.com/web/{service_id}/settings")
+        return STATUS_RENDER_MANUAL_REQUIRED
+
+    try:
+        req = urllib.request.Request(
+            f"{RENDER_API}/services/{service_id}",
+            method="DELETE",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        resp = urllib.request.urlopen(req, timeout=15)
+        if resp.status not in (200, 204):
+            step_info(f"REST API DELETE: HTTP {resp.status}")
+            return STATUS_RENDER_DELETE_FAILED
+    except urllib.error.HTTPError as e:
+        step_info(f"REST API DELETE: HTTP {e.code}")
+        return STATUS_RENDER_DELETE_FAILED
+    except Exception as e:
+        step_info(f"REST API DELETE: {e}")
+        return STATUS_RENDER_DELETE_FAILED
+
+    if not _verify_render_service_absent(service_id):
+        step_info("Render сервис не подтверждён как удалённый — read-back verification failed.")
+        return STATUS_RENDER_DELETE_PENDING
+
+    step_info(f"Render сервис удалён через REST API (key source: {source}).")
+    return STATUS_RENDER_DELETE_VERIFIED
 
 
 def _verify_render_service_absent(service_id: str, attempts: int = 3, delay: float = 2.0) -> bool:
     """Read-back verification that Render service is absent/deleted."""
-    api_key = discover_render_api_key()
+    api_key, _ = _resolve_render_api_key()
     if not api_key:
         step_info("Render verification skipped: API key not available.")
         return False
