@@ -6,6 +6,23 @@ from unittest.mock import MagicMock, patch
 from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
 
 
+@pytest.fixture(autouse=True)
+def mock_external_verification(monkeypatch):
+    """Cleanup tests are offline: read-back checks are mocked by default."""
+    monkeypatch.setattr(
+        "src.sandbox.bootstrap.commands.install_live_cleanup._verify_telegram_webhook_empty",
+        lambda *a, **kw: True,
+    )
+    monkeypatch.setattr(
+        "src.sandbox.bootstrap.commands.install_live_cleanup._verify_render_service_absent",
+        lambda *a, **kw: True,
+    )
+    monkeypatch.setattr(
+        "src.sandbox.bootstrap.commands.install_live_cleanup._verify_supabase_project_absent",
+        lambda *a, **kw: True,
+    )
+
+
 class TestCleanupExitCodes:
     """Унифицированные exit codes: 0=ok/nothing, 1=partial failure, 2=no state."""
 
@@ -279,6 +296,115 @@ class TestCleanupPartialFailure:
         assert cleanup_calls == ["webhook", "render", "supabase"]
         assert "render_service_id" not in final_state
         assert "supabase_project_ref" in final_state
+
+    def test_webhook_unverified_preserves_state(self, monkeypatch):
+        """deleteWebhook success без getWebhookInfo-empty verification не считается cleanup success."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._get_telegram_token_interactive",
+            lambda: "fake-token",
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_webhook",
+            lambda token: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._verify_telegram_webhook_empty",
+            lambda *a, **kw: False,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"webhook_set": True, "webhook_url": "https://old.example/webhook"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1
+        assert final_state["webhook_set"] is True
+        assert final_state["webhook_url"] == "https://old.example/webhook"
+
+    def test_render_unverified_preserves_state_and_skips_supabase(self, monkeypatch):
+        """Render delete success без read-back absent verification сохраняет Render/Supabase state."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_render_service",
+            lambda sid: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._verify_render_service_absent",
+            lambda sid: False,
+        )
+
+        supabase_calls = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: supabase_calls.append(ref) or True,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"render_service_id": "srv-abc", "supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1
+        assert final_state["render_service_id"] == "srv-abc"
+        assert final_state["supabase_project_ref"] == "ref-xyz"
+        assert supabase_calls == []
+
+    def test_supabase_unverified_preserves_state(self, monkeypatch):
+        """Supabase delete success без list/read-back absent verification сохраняет project_ref."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_supabase_project",
+            lambda ref: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._verify_supabase_project_absent",
+            lambda ref: False,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {"supabase_project_ref": "ref-xyz"}
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1
+        assert final_state["supabase_project_ref"] == "ref-xyz"
 
 
 class TestCleanupIdempotency:

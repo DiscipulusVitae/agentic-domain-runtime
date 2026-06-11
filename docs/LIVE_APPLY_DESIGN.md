@@ -188,6 +188,13 @@ Before executing a live rollback or cleanup, operators can preview the actions u
 * **Command**: `uv run python -m src.sandbox bootstrap cleanup --preview --local [--state-path <path>] [--json]`
 * **Behavior**: Displays the source of truth (plan or state file), resources and their status (e.g. `planned_not_created`, `created`), and lists the cleanup actions in reverse dependency order (Telegram -> Render -> Supabase -> Local State). It blocks live mutations and requires both flags.
 
+### 5. Live Cleanup Verification
+Live cleanup must not report success from delete commands alone. Each external resource requires read-back verification before local state is removed:
+* **Telegram**: after `deleteWebhook`, verify bot identity and `getWebhookInfo.url == ""`.
+* **Render**: after service deletion, verify the service is absent/deleted through Render API read-back.
+* **Supabase**: after project deletion, verify the project is absent from Supabase project listing.
+* **Local state**: `.bootstrap-state.json` is removed only after all touched external resources are verified. If a resource is failed or pending verification, state is preserved for recovery.
+
 ---
 
 ## 7. Smoke / Verification Contract

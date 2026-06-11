@@ -8,6 +8,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+import time
 from pathlib import Path
 
 from ..env_checks import is_tty_available, TTY_ERROR_MESSAGE
@@ -27,6 +28,12 @@ from ..live_executor import (
 
 
 RENDER_API = "https://api.render.com/v1"
+
+STATUS_VERIFIED = "verified"
+STATUS_FAILED = "failed"
+STATUS_PENDING = "pending_verification"
+STATUS_MANUAL = "manual_required"
+STATUS_SKIPPED_RENDER_FAILED = "skipped_render_failed"
 
 
 def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
@@ -111,59 +118,72 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
         step_header(1, 4, "Telegram webhook")
         token = _get_telegram_token_interactive()
         if token:
-            if _delete_webhook(token):
-                step_pass("Webhook удалён.")
+            if not _delete_webhook(token):
+                step_fail("Не удалось вызвать deleteWebhook. State сохранён для повторной очистки.")
+                cleanup_results["webhook"] = STATUS_FAILED
+            elif _verify_telegram_webhook_empty(token, state.get("telegram_bot_username")):
+                step_pass("Webhook удалён и проверен через getWebhookInfo.")
                 state.pop("webhook_set", None)
                 state.pop("webhook_url", None)
                 state.pop("webhook_verified", None)
-                cleanup_results["webhook"] = "deleted"
+                cleanup_results["webhook"] = STATUS_VERIFIED
             else:
-                step_fail("Не удалось удалить webhook.")
-                cleanup_results["webhook"] = "failed"
+                step_fail("Webhook не подтверждён как удалённый. State сохранён для повторной очистки.")
+                cleanup_results["webhook"] = STATUS_PENDING
         else:
             step_skip("Токен не предоставлен — webhook не удалён.")
             print("  Удалите вручную:")
             print(f"  curl -X POST https://api.telegram.org/bot<TOKEN>/deleteWebhook")
-            cleanup_results["webhook"] = "manual_required"
+            cleanup_results["webhook"] = STATUS_MANUAL
 
     # Step 2: Render (must succeed before Supabase deletion)
     if service_id:
         step_header(2, 4, "Render сервис")
         sid = state["render_service_id"]
-        if _delete_render_service(sid):
-            step_pass(f"Render сервис {mask(sid)} удалён.")
-            state.pop("render_service_id", None)
-            state.pop("render_service_url", None)
-            cleanup_results["render"] = "deleted"
-        else:
+        if not _delete_render_service(sid):
             step_fail(f"Не удалось удалить Render сервис {mask(sid)}.")
             print(f"  Dashboard: https://dashboard.render.com/web/{sid}/settings")
             print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
-            cleanup_results["render"] = "failed"
+            cleanup_results["render"] = STATUS_FAILED
+        elif _verify_render_service_absent(sid):
+            step_pass(f"Render сервис {mask(sid)} удалён и подтверждён read-back проверкой.")
+            state.pop("render_service_id", None)
+            state.pop("render_service_url", None)
+            cleanup_results["render"] = STATUS_VERIFIED
+        else:
+            step_fail(f"Render сервис {mask(sid)} не подтверждён как удалённый. State сохранён.")
+            print(f"  Dashboard: https://dashboard.render.com/web/{sid}/settings")
+            print(f"  API:       curl -X DELETE {RENDER_API}/services/{sid} -H 'Authorization: Bearer <API_KEY>'")
+            cleanup_results["render"] = STATUS_PENDING
 
     # Step 3: Supabase (только если Render удалён или не было Render)
-    render_failed = cleanup_results.get("render") == "failed"
+    render_failed = cleanup_results.get("render") not in (None, STATUS_VERIFIED)
     if project_ref and not render_failed:
         step_header(3, 4, "Supabase проект")
-        if _delete_supabase_project(project_ref):
-            step_pass(f"Supabase проект {mask(project_ref)} удалён.")
-            state.pop("supabase_project_ref", None)
-            cleanup_results["supabase"] = "deleted"
-        else:
+        if not _delete_supabase_project(project_ref):
             step_fail(f"Не удалось удалить Supabase проект {mask(project_ref)}.")
             print(f"  Ручная команда:")
             print(f"  supabase projects delete {project_ref} --yes")
-            cleanup_results["supabase"] = "failed"
+            cleanup_results["supabase"] = STATUS_FAILED
+        elif _verify_supabase_project_absent(project_ref):
+            step_pass(f"Supabase проект {mask(project_ref)} удалён и подтверждён read-back проверкой.")
+            state.pop("supabase_project_ref", None)
+            cleanup_results["supabase"] = STATUS_VERIFIED
+        else:
+            step_fail(f"Supabase проект {mask(project_ref)} не подтверждён как удалённый. State сохранён.")
+            print(f"  Ручная команда:")
+            print(f"  supabase projects delete {project_ref} --yes")
+            cleanup_results["supabase"] = STATUS_PENDING
     elif project_ref and render_failed:
         step_header(3, 4, "Supabase проект")
         step_skip("Render не удалён — Supabase сохранён для целостности.")
         print("  Render сервис зависит от Supabase DB. Supabase не удалён.")
-        cleanup_results["supabase"] = "skipped_render_failed"
+        cleanup_results["supabase"] = STATUS_SKIPPED_RENDER_FAILED
 
     # Step 4: State file (conditional)
     step_header(4, 4, "Локальное состояние")
 
-    failed_resources = {k: v for k, v in cleanup_results.items() if v != "deleted"}
+    failed_resources = {k: v for k, v in cleanup_results.items() if v != STATUS_VERIFIED}
     all_cleared = not failed_resources
 
     if all_cleared:
@@ -186,8 +206,13 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
     print()
     print("--- Итоги очистки ---")
     for resource, status in cleanup_results.items():
-        label_map = {"deleted": "удалён", "failed": "НЕ удалён", "manual_required": "требует ручного удаления",
-                     "skipped_render_failed": "пропущен (Render не удалён)"}
+        label_map = {
+            STATUS_VERIFIED: "verified",
+            STATUS_FAILED: "failed",
+            STATUS_PENDING: "pending verification",
+            STATUS_MANUAL: "manual required",
+            STATUS_SKIPPED_RENDER_FAILED: "skipped (Render not verified)",
+        }
         label = label_map.get(status, status)
         print(f"  {resource:<15} {label}")
 
@@ -259,14 +284,37 @@ def _get_telegram_token_interactive() -> str | None:
 
 def _delete_webhook(token: str) -> bool:
     """Удаляет Telegram webhook через Bot API."""
-    url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+    data = _telegram_api_call(token, "deleteWebhook")
+    return data.get("ok", False) and data.get("result", False)
+
+
+def _telegram_api_call(token: str, method: str) -> dict:
+    """Выполняет Telegram Bot API call. Токен не выводится."""
+    url = f"https://api.telegram.org/bot{token}/{method}"
     try:
         req = urllib.request.Request(url)
         resp = urllib.request.urlopen(req, timeout=15)
-        data = json.loads(resp.read().decode())
-        return data.get("ok", False) and data.get("result", False)
+        return json.loads(resp.read().decode())
     except Exception:
+        return {"ok": False}
+
+
+def _verify_telegram_webhook_empty(token: str, expected_username: str | None = None) -> bool:
+    """Проверяет identity бота и что webhook URL пуст после cleanup."""
+    me = _telegram_api_call(token, "getMe")
+    if not me.get("ok"):
         return False
+
+    actual_username = (me.get("result") or {}).get("username")
+    if expected_username and actual_username != expected_username.lstrip("@"):
+        return False
+
+    info = _telegram_api_call(token, "getWebhookInfo")
+    if not info.get("ok"):
+        return False
+
+    result = info.get("result") or {}
+    return result.get("url", "") == ""
 
 
 def _delete_render_service(service_id: str) -> bool:
@@ -300,6 +348,46 @@ def _delete_render_service(service_id: str) -> bool:
     return False
 
 
+def _verify_render_service_absent(service_id: str, attempts: int = 3, delay: float = 2.0) -> bool:
+    """Read-back verification that Render service is absent/deleted."""
+    api_key = discover_render_api_key()
+    if not api_key:
+        step_info("Render verification skipped: API key not available.")
+        return False
+
+    for attempt in range(attempts):
+        try:
+            req = urllib.request.Request(
+                f"{RENDER_API}/services/{service_id}",
+                method="GET",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            resp = urllib.request.urlopen(req, timeout=15)
+            if resp.status == 404:
+                return True
+            if resp.status in (200, 202):
+                if attempt < attempts - 1:
+                    time.sleep(delay)
+                continue
+            return False
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return True
+            if e.code in (409, 429, 500, 502, 503, 504) and attempt < attempts - 1:
+                time.sleep(delay)
+                continue
+            step_info(f"Render verification: HTTP {e.code}")
+            return False
+        except Exception as e:
+            if attempt < attempts - 1:
+                time.sleep(delay)
+                continue
+            step_info(f"Render verification: {e}")
+            return False
+
+    return False
+
+
 def _delete_supabase_project(project_ref: str) -> bool:
     """Удаляет Supabase проект через CLI."""
     result = run_cmd(
@@ -309,4 +397,29 @@ def _delete_supabase_project(project_ref: str) -> bool:
     return result["ok"]
 
 
+def _verify_supabase_project_absent(project_ref: str, attempts: int = 3, delay: float = 2.0) -> bool:
+    """Read-back verification that Supabase project is absent from project list."""
+    for attempt in range(attempts):
+        result = run_cmd(["supabase", "projects", "list", "--output", "json"], timeout=30)
+        if result["ok"]:
+            try:
+                projects = json.loads(result["stdout"])
+            except json.JSONDecodeError:
+                return False
+
+            if not any(p.get("id") == project_ref or p.get("ref") == project_ref for p in projects):
+                return True
+
+            if attempt < attempts - 1:
+                time.sleep(delay)
+                continue
+            return False
+
+        if attempt < attempts - 1:
+            time.sleep(delay)
+            continue
+        step_info("Supabase verification failed: projects list unavailable.")
+        return False
+
+    return False
 
