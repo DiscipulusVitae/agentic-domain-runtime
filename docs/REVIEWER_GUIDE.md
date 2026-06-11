@@ -316,6 +316,13 @@ For reviewers analyzing our PostgreSQL/Supabase boundaries:
 
 The system has been proven operational on disposable cloud resources (Supabase + existing Render service). The guided wizard (`bootstrap install --yes`) is v1 alpha, proven on Win+WSL2 with caveats (fresh Render deploy pending). This path documents what was proven and how a reviewer could reproduce it.
 
+Telegram live proof uses a stricter token boundary than local dry-runs:
+
+- default reviewer checks require no Telegram token;
+- live proof must use a disposable BotFather token, entered explicitly or supplied through a scoped proof environment;
+- generic local `.env` tokens and known private bot identities are blocked;
+- every Telegram mutation is preceded by a `getMe` identity gate and followed by read-back verification.
+
 ### Model
 
 - Disposable resources only (free tier), with explicit cleanup.

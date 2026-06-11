@@ -20,6 +20,10 @@ from ..live_executor import (
     mask,
     discover_render_api_key,
 )
+from ..telegram_identity import (
+    validate_reviewer_bot_identity,
+    validate_reviewer_token_source,
+)
 
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -42,17 +46,35 @@ def run_telegram_phase(plan, state: dict) -> None:
 
     if env_token and not token:
         token = env_token
-        token_source = "env"
+        token_source = "shell_env"
         state["_telegram_token"] = token
         state["_telegram_token_source"] = token_source
         step_info("Обнаружен TELEGRAM_BOT_TOKEN в переменных окружения.")
-    elif token and token_source == "env":
+    elif token and token_source in ("env", "shell_env"):
+        token_source = "shell_env"
+        state["_telegram_token_source"] = token_source
         pass  # уже определён в предыдущем проходе
     elif token:
-        token_source = state.get("_telegram_token_source", "state")
+        token_source = state.get("_telegram_token_source", "session_state")
         step_info(f"Обнаружен токен в состоянии сессии (источник: {token_source}).")
     else:
         token_source = ""
+
+    if token:
+        source_check = validate_reviewer_token_source(token_source)
+        if not source_check["ok"]:
+            step_fail(source_check["message"])
+            state.pop("_telegram_token", None)
+            state.pop("_telegram_token_source", None)
+            if not ask_yes_no("Ввести reviewer/disposable токен вручную?", default=True):
+                step_skip("Telegram фаза пропущена — token source не подтверждён.")
+                state["telegram_skipped"] = True
+                save_state(state)
+                return
+            token = None
+            token_source = ""
+        else:
+            step_info(source_check["message"])
 
     if token:
         if not ask_yes_no("Использовать обнаруженный токен? Убедитесь, что это reviewer/disposable бот.",
@@ -63,7 +85,6 @@ def run_telegram_phase(plan, state: dict) -> None:
             state.pop("_telegram_token", None)
             state.pop("_telegram_token_source", None)
 
-    # Шаг 1: Получение токена
     if not token:
         print()
         print("=== Настройка Telegram бота ===")
@@ -107,7 +128,15 @@ def run_telegram_phase(plan, state: dict) -> None:
         state["_telegram_token_source"] = token_source
         step_info(f"Токен получен (источник: {token_source}).")
 
-    # Шаг 2: getMe — валидация токена (read-only)
+    source_check = validate_reviewer_token_source(token_source)
+    if not source_check["ok"]:
+        step_fail(source_check["message"])
+        state["telegram_skipped"] = True
+        state.pop("_telegram_token", None)
+        state.pop("_telegram_token_source", None)
+        save_state(state)
+        return
+
     step_info("Проверка токена (getMe)...")
 
     me_result = _telegram_api_call(token, "getMe")
@@ -125,12 +154,31 @@ def run_telegram_phase(plan, state: dict) -> None:
     bot_username = bot_info.get("username", "unknown_bot")
     step_pass(f"Токен действителен. Бот: @{bot_username} ({bot_name})")
 
-    # Сохраняем non-secret metadata
+    identity_check = validate_reviewer_bot_identity(bot_info)
+    if not identity_check["ok"]:
+        step_fail(identity_check["message"])
+        state["telegram_skipped"] = True
+        state.pop("_telegram_token", None)
+        state.pop("_telegram_token_source", None)
+        save_state(state)
+        return
+
+    step_info(identity_check["message"])
+    if not ask_yes_no(
+        f"Подтверждаете Telegram boundary: @{bot_username} — reviewer/disposable бот?",
+        default=False,
+    ):
+        step_fail("Telegram bot identity не подтверждена как reviewer/disposable. Завершение фазы.")
+        state["telegram_skipped"] = True
+        state.pop("_telegram_token", None)
+        state.pop("_telegram_token_source", None)
+        save_state(state)
+        return
+
     state["telegram_bot_name"] = bot_name
     state["telegram_bot_username"] = bot_username
     save_state(state)
 
-    # Шаг 3: Render URL должен быть доступен
     service_url = state.get("render_service_url")
     render_skipped = state.get("render_skipped")
 
@@ -149,15 +197,12 @@ def run_telegram_phase(plan, state: dict) -> None:
         save_state(state)
         return
 
-    # Шаг 4: Генерация webhook secret
     webhook_secret = secrets.token_hex(32)
     state["webhook_secret_sha256"] = _sha256_hex(webhook_secret)
 
-    # Шаг 5: Передача env vars в Render
     step_info("Передача Telegram env vars в Render...")
     render_env_result = _set_render_env_vars(state, token, webhook_secret)
 
-    # Ждём деплоя с новыми env vars
     if render_env_result:
         step_info("Ожидание деплоя Render с новыми env vars (до 2 мин)...")
         time.sleep(20)
@@ -183,7 +228,6 @@ def run_telegram_phase(plan, state: dict) -> None:
         save_state(state)
         return
 
-    # Шаг 6: setWebhook
     webhook_url = f"{service_url.rstrip('/')}/webhook/telegram"
     step_info(f"Установка webhook: {webhook_url}")
 
@@ -206,7 +250,6 @@ def run_telegram_phase(plan, state: dict) -> None:
         save_state(state)
         return
 
-    # Шаг 7: getWebhookInfo
     step_info("Проверка webhook (getWebhookInfo)...")
     info_result = _telegram_api_call(token, "getWebhookInfo")
     info = info_result.get("result", {})
@@ -225,12 +268,10 @@ def run_telegram_phase(plan, state: dict) -> None:
     print(f"  pending_updates: {info_pending}")
     print(f"  custom_certificate: {has_custom_cert}")
 
-    # Шаг 8: Synthetic webhook smoke (valid + invalid)
     if state["webhook_verified"]:
         step_info("Синтетический webhook smoke...")
         _webhook_smoke(token, webhook_url, webhook_secret)
 
-    # Шаг 9: Cleanup/rollback info
     print()
     print("--- Webhook rollback ---")
     print(f"  # Удалить webhook:")
@@ -239,7 +280,6 @@ def run_telegram_phase(plan, state: dict) -> None:
     print(f"  curl {TELEGRAM_API}/bot<TOKEN>/getWebhookInfo")
     print()
 
-    # Удаляем token из state перед сохранением
     state.pop("_telegram_token", None)
     save_state(state)
     step_pass("Telegram фаза завершена.")
@@ -295,7 +335,6 @@ def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) 
         "Accept": "application/json",
     }
 
-    # 1. GET существующие env vars
     existing_count = 0
     existing_map = {}
     try:
@@ -340,14 +379,12 @@ def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) 
         print(f"  Установите переменные вручную: https://dashboard.render.com/web/{service_id}/env")
         return False
 
-    # 2. Merge Telegram vars (overwrite если конфликт)
     existing_map["TELEGRAM_BOT_TOKEN"] = telegram_token
     existing_map["WEBHOOK_SECRET"] = webhook_secret
 
     merged_vars = [{"key": k, "value": v} for k, v in existing_map.items()]
     step_info(f"Объединено {existing_count} существующих и 2 Telegram переменных ({len(merged_vars)} total).")
 
-    # 3. PUT merged env vars
     body = json.dumps(merged_vars).encode()
     try:
         put_req = urllib.request.Request(

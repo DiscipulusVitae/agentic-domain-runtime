@@ -10,6 +10,10 @@ from src.sandbox.bootstrap.commands.install_live_cleanup import run_live_cleanup
 def mock_external_verification(monkeypatch):
     """Cleanup tests are offline: read-back checks are mocked by default."""
     monkeypatch.setattr(
+        "src.sandbox.bootstrap.commands.install_live_cleanup._verify_telegram_identity_before_mutation",
+        lambda *a, **kw: True,
+    )
+    monkeypatch.setattr(
         "src.sandbox.bootstrap.commands.install_live_cleanup._verify_telegram_webhook_empty",
         lambda *a, **kw: True,
     )
@@ -167,6 +171,49 @@ class TestCleanupPartialFailure:
         # Render и Supabase удалены (pop), webhook остаётся
         assert "render_service_id" not in final_state
         assert "supabase_project_ref" not in final_state
+
+    def test_webhook_identity_mismatch_blocks_delete(self, monkeypatch):
+        """Identity mismatch before deleteWebhook blocks Telegram mutation and preserves state."""
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.is_tty_available",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._get_telegram_token_interactive",
+            lambda: "fake-token",
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._verify_telegram_identity_before_mutation",
+            lambda *a, **kw: False,
+        )
+
+        delete_calls = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_cleanup._delete_webhook",
+            lambda token: delete_calls.append(token) or True,
+        )
+
+        final_state = {}
+        def fake_save_state(s, path=".bootstrap-state.json"):
+            final_state.update(s)
+
+        state = {
+            "webhook_set": True,
+            "webhook_url": "https://test.onrender.com/webhook/telegram",
+            "telegram_bot_username": "expected_bot",
+        }
+        with patch("src.sandbox.bootstrap.commands.install_live_cleanup._load_bootstrap_state",
+                   return_value=dict(state)):
+            with patch("src.sandbox.bootstrap.commands.install_live_cleanup.save_state", fake_save_state):
+                result = run_live_cleanup(preview=False, json_mode=False)
+
+        assert result == 1
+        assert delete_calls == []
+        assert final_state.get("webhook_set") is True
 
     def test_render_failure_skips_supabase(self, monkeypatch):
         """Отказ Render: Supabase не удаляется, оба остаются в state."""

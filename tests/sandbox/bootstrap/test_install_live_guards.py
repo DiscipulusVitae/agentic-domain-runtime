@@ -15,6 +15,10 @@ from src.sandbox.bootstrap.commands.install_live_telegram import (
     run_telegram_phase,
     _set_render_env_vars,
 )
+from src.sandbox.bootstrap.telegram_identity import (
+    validate_reviewer_bot_identity,
+    validate_reviewer_token_source,
+)
 from src.sandbox.bootstrap.commands.install_live_supabase import (
     run_supabase_phase,
 )
@@ -89,6 +93,7 @@ class TestTokenSourceGuard:
 
         ask_resps = iter([
             True,   # «Использовать обнаруженный токен?»
+            True,   # identity gate confirmation
             True, True, True, True, True, True, True,  # остальные
         ])
         monkeypatch.setattr(
@@ -105,7 +110,7 @@ class TestTokenSourceGuard:
 
         api_methods = [c[1] for c in calls_log if c[0] == "api"]
         assert "getMe" in api_methods
-        assert state.get("_telegram_token_source") == "env"
+        assert state.get("_telegram_token_source") == "shell_env"
 
     def test_env_token_rejected_then_prompt(self, monkeypatch):
         """TELEGRAM_BOT_TOKEN detected но rejected → падает в prompt path."""
@@ -116,6 +121,7 @@ class TestTokenSourceGuard:
 
         ask_resps = iter([
             True,   # «Есть токен?» — Да
+            True,   # identity gate confirmation
             True, True, True, True, True, True, True, True,
         ])
         monkeypatch.setattr(
@@ -140,6 +146,7 @@ class TestTokenSourceGuard:
 
         ask_resps = iter([
             True,   # «Использовать обнаруженный токен?»
+            True,   # identity gate confirmation
             True, True, True, True, True, True, True,
         ])
         monkeypatch.setattr(
@@ -189,6 +196,7 @@ class TestTokenSourceGuard:
         ask_resps = iter([
             False,  # «Использовать обнаруженный токен?» → Нет
             True,   # «Есть токен?» → Да
+            True,   # identity gate confirmation
             True, True, True, True, True, True, True,
         ])
         monkeypatch.setattr(
@@ -204,6 +212,73 @@ class TestTokenSourceGuard:
             run_telegram_phase(MagicMock(), state)
 
         assert state.get("_telegram_token_source") == "prompt"
+
+    def test_reviewer_token_source_prompt_allowed(self):
+        """Explicit prompt token source is allowed for reviewer proof."""
+        result = validate_reviewer_token_source("prompt")
+        assert result["ok"] is True
+        assert result["source"] == "prompt"
+
+    def test_reviewer_token_source_shell_env_requires_confirmation(self):
+        """Shell env token source is classified explicitly, not silently treated as .env."""
+        result = validate_reviewer_token_source("env")
+        assert result["ok"] is True
+        assert result["source"] == "shell_env"
+
+    def test_reviewer_token_source_dotenv_denied(self):
+        """Generic local .env token source is fail-closed in reviewer proof."""
+        result = validate_reviewer_token_source(".env")
+        assert result["ok"] is False
+        assert result["source"] == "dotenv"
+
+    def test_reviewer_token_source_unknown_denied(self):
+        """Unknown token source is fail-closed in reviewer proof."""
+        result = validate_reviewer_token_source("")
+        assert result["ok"] is False
+        assert result["source"] == "unknown"
+
+    def test_denied_bot_identity_blocked_in_reviewer_proof(self):
+        """Denied bot identity is blocked before Telegram mutation."""
+        result = validate_reviewer_bot_identity({"id": 42, "username": "adr_private_prod_bot"})
+        assert result["ok"] is False
+
+    def test_disposable_bot_identity_allowed(self):
+        """Synthetic/reviewer bot identity passes the identity classifier."""
+        result = validate_reviewer_bot_identity({"id": 42, "username": "adr_reviewer_bot"})
+        assert result["ok"] is True
+
+    def test_identity_denied_blocks_before_render_env_and_webhook(self, monkeypatch):
+        """Known private bot in reviewer proof stops before Render env vars and setWebhook."""
+        state, calls_log = self._setup_telegram_test(monkeypatch, token_in_env=True)
+
+        def fake_api_call(token_, method, data=None):
+            calls_log.append(("api", method))
+            return {"ok": True, "result": {
+                "first_name": "Private",
+                "username": "adr_private_prod_bot",
+            }}
+
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram._telegram_api_call",
+            fake_api_call,
+        )
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram.ask_yes_no",
+            lambda *a, **kw: True,
+        )
+        env_calls = []
+        monkeypatch.setattr(
+            "src.sandbox.bootstrap.commands.install_live_telegram._set_render_env_vars",
+            lambda *a, **kw: env_calls.append(a) or True,
+        )
+
+        state["render_service_url"] = "https://test.onrender.com"
+        with patch("src.sandbox.bootstrap.commands.install_live_telegram.save_state"):
+            run_telegram_phase(MagicMock(), state)
+
+        assert "getMe" in [c[1] for c in calls_log if c[0] == "api"]
+        assert env_calls == []
+        assert state.get("telegram_skipped") is True
 
 
 class TestStateReuseGuard:

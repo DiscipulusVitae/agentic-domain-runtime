@@ -118,6 +118,16 @@ For reviewer/test setups:
 - Do not pass `--size nano` for free-tier creation; let Supabase choose the free-tier compute size.
 - Remote `supabase db push` does not apply `seed.sql`; apply public-safe `seed.sql` explicitly before running `smoke.sql`.
 
+### Telegram Reviewer Token Boundary
+
+For reviewer/live proof mode, Telegram token handling is fail-closed:
+
+- Allowed token sources are explicit interactive input or a deliberately scoped proof environment file.
+- A shell environment token may be used only after explicit human confirmation.
+- Generic local `.env`, unknown, or ambiguous token sources are not accepted for reviewer proof.
+- Before any Telegram mutation (`setWebhook`, `deleteWebhook`), the installer must call `getMe`, show only redacted identity metadata (`@username` / bot id), and stop on denied bot identities or expected/actual identity mismatch.
+- Operators may pass a comma-separated deny-list through `ADR_DENIED_TELEGRAM_BOT_USERNAMES` for private/prod/dev bot usernames that must never be used in reviewer proof.
+
 ### Storage & Input Protocols
 1. **No Disk Persistence for Secrets**: Secrets must never be written to local state files (such as `.bootstrap-state.json`) or temporary files.
 2. **Environment Variable Injection**: Secrets must be read directly from the parent shell environment variables or inputted interactively via masked terminal prompts.
@@ -190,7 +200,7 @@ Before executing a live rollback or cleanup, operators can preview the actions u
 
 ### 5. Live Cleanup Verification
 Live cleanup must not report success from delete commands alone. Each external resource requires read-back verification before local state is removed:
-* **Telegram**: after `deleteWebhook`, verify bot identity and `getWebhookInfo.url == ""`.
+* **Telegram**: before `deleteWebhook`, verify bot identity through `getMe`; after `deleteWebhook`, verify bot identity again and `getWebhookInfo.url == ""`.
 * **Render**: after service deletion, verify the service is absent/deleted through Render API read-back.
 * **Supabase**: after project deletion, verify the project is absent from Supabase project listing.
 * **Local state**: `.bootstrap-state.json` is removed only after all touched external resources are verified. If a resource is failed or pending verification, state is preserved for recovery.

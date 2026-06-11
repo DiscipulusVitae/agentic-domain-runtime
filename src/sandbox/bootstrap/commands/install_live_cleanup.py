@@ -25,6 +25,7 @@ from ..live_executor import (
     mask,
     discover_render_api_key,
 )
+from ..telegram_identity import validate_reviewer_bot_identity
 
 
 RENDER_API = "https://api.render.com/v1"
@@ -118,7 +119,11 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
         step_header(1, 4, "Telegram webhook")
         token = _get_telegram_token_interactive()
         if token:
-            if not _delete_webhook(token):
+            identity_ok = _verify_telegram_identity_before_mutation(token, state.get("telegram_bot_username"))
+            if not identity_ok:
+                step_fail("Telegram identity gate failed before deleteWebhook. State сохранён.")
+                cleanup_results["webhook"] = STATUS_FAILED
+            elif not _delete_webhook(token):
                 step_fail("Не удалось вызвать deleteWebhook. State сохранён для повторной очистки.")
                 cleanup_results["webhook"] = STATUS_FAILED
             elif _verify_telegram_webhook_empty(token, state.get("telegram_bot_username")):
@@ -288,6 +293,21 @@ def _delete_webhook(token: str) -> bool:
     return data.get("ok", False) and data.get("result", False)
 
 
+def _verify_telegram_identity_before_mutation(token: str, expected_username: str | None = None) -> bool:
+    """Runs getMe before deleteWebhook and checks intended bot boundary."""
+    me = _telegram_api_call(token, "getMe")
+    if not me.get("ok"):
+        return False
+
+    bot_info = me.get("result") or {}
+    actual_username = str(bot_info.get("username") or "").lstrip("@")
+    if expected_username and actual_username != expected_username.lstrip("@"):
+        return False
+
+    identity = validate_reviewer_bot_identity(bot_info)
+    return bool(identity.get("ok"))
+
+
 def _telegram_api_call(token: str, method: str) -> dict:
     """Выполняет Telegram Bot API call. Токен не выводится."""
     url = f"https://api.telegram.org/bot{token}/{method}"
@@ -422,4 +442,3 @@ def _verify_supabase_project_absent(project_ref: str, attempts: int = 3, delay: 
         return False
 
     return False
-
