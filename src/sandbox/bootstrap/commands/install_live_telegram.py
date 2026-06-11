@@ -365,8 +365,9 @@ def _set_render_env_vars(state: dict, telegram_token: str, webhook_secret: str) 
 
             for item in existing_list:
                 if isinstance(item, dict):
-                    key = item.get("key", "")
-                    value = item.get("value", "")
+                    env_var = item.get("envVar", item)
+                    key = env_var.get("key", "")
+                    value = env_var.get("value", "")
                     if key:
                         existing_map[key] = value
             existing_count = len(existing_map)

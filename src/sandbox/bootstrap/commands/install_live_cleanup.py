@@ -460,8 +460,11 @@ def _delete_render_service(service_id: str) -> str:
             step_info(f"REST API DELETE: HTTP {resp.status}")
             return STATUS_RENDER_DELETE_FAILED
     except urllib.error.HTTPError as e:
-        step_info(f"REST API DELETE: HTTP {e.code}")
-        return STATUS_RENDER_DELETE_FAILED
+        if e.code == 404:
+            step_info("REST API DELETE: HTTP 404 (Уже удалён)")
+        else:
+            step_info(f"REST API DELETE: HTTP {e.code}")
+            return STATUS_RENDER_DELETE_FAILED
     except Exception as e:
         step_info(f"REST API DELETE: {e}")
         return STATUS_RENDER_DELETE_FAILED
@@ -531,6 +534,11 @@ def _verify_supabase_project_absent(project_ref: str, attempts: int = 3, delay: 
             try:
                 projects = json.loads(result["stdout"])
             except json.JSONDecodeError:
+                return False
+
+            if projects is None:
+                projects = []
+            elif not isinstance(projects, list):
                 return False
 
             if not any(p.get("id") == project_ref or p.get("ref") == project_ref for p in projects):
