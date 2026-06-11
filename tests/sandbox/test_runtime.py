@@ -49,6 +49,7 @@ def test_health_endpoint(server_url):
         assert "kitchen.recorder" in data.get("agent_ids")
         # Assert default memory persistence fields
         assert data.get("persistence") == "memory"
+        assert data.get("telegram_configured") == False
         assert data.get("database") == {
             "configured": False,
             "reachable": False,
@@ -641,3 +642,145 @@ class TestWebhookSecretValidation:
         monkeypatch.setenv("WEBHOOK_SECRET", "")
         code, body = self._post_webhook(server_url, self._valid_start_payload())
         assert code == 200
+
+
+class TestTelegramSendReply:
+    """T318: _try_send_telegram_message вызывается для видимого Telegram reply."""
+
+    WEBHOOK_PATH = "/webhook/telegram"
+
+    def _post_webhook(self, server_url, payload, headers=None):
+        url = f"{server_url}{self.WEBHOOK_PATH}"
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(url, data=body, headers=headers or {})
+        try:
+            resp = urllib.request.urlopen(req, timeout=5)
+            return resp.getcode(), resp.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    def test_send_reply_called_for_text(self, server_url, monkeypatch):
+        """Текстовое сообщение с chat.id → _try_send_telegram_message вызывается."""
+        calls = []
+        monkeypatch.setattr(
+            "src.sandbox.runtime._try_send_telegram_message",
+            lambda chat_id, text: calls.append((chat_id, text)) or "send_mocked",
+        )
+        payload = {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "text": "Добавь рецепт борща",
+                "chat": {"id": 12345},
+            },
+        }
+        code, body = self._post_webhook(server_url, payload)
+        assert code == 200
+        assert len(calls) == 1
+        assert calls[0][0] == 12345
+        assert "ADR Sandbox" in calls[0][1]
+
+    def test_send_reply_called_for_unknown_command(self, server_url, monkeypatch):
+        """Неизвестная команда → _try_send_telegram_message вызывается с helpful text."""
+        calls = []
+        monkeypatch.setattr(
+            "src.sandbox.runtime._try_send_telegram_message",
+            lambda chat_id, text: calls.append((chat_id, text)) or "send_mocked",
+        )
+        payload = {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "text": "/unknown_cmd",
+                "chat": {"id": 12345},
+            },
+        }
+        code, body = self._post_webhook(server_url, payload)
+        assert code == 200
+        assert len(calls) == 1
+        assert calls[0][0] == 12345
+        assert "Неизвестная команда" in calls[0][1]
+
+    def test_send_reply_called_for_start(self, server_url, monkeypatch):
+        """/start с chat.id → _try_send_telegram_message вызывается с welcome text."""
+        calls = []
+        monkeypatch.setattr(
+            "src.sandbox.runtime._try_send_telegram_message",
+            lambda chat_id, text: calls.append((chat_id, text)) or "send_mocked",
+        )
+        payload = {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "text": "/start",
+                "chat": {"id": 12345},
+            },
+        }
+        code, body = self._post_webhook(server_url, payload)
+        assert code == 200
+        assert len(calls) == 1
+        assert calls[0][0] == 12345
+        assert "sandbox" in calls[0][1].lower()
+
+    def test_no_chat_id_skips_send(self, server_url, monkeypatch):
+        """Сообщение без chat.id → _try_send_telegram_message не вызывается."""
+        calls = []
+        monkeypatch.setattr(
+            "src.sandbox.runtime._try_send_telegram_message",
+            lambda chat_id, text: calls.append((chat_id, text)) or "send_mocked",
+        )
+        payload = {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "text": "Привет",
+            },
+        }
+        code, body = self._post_webhook(server_url, payload)
+        assert code == 200
+        data = json.loads(body)
+        assert "[send: no_chat_id]" in data.get("trace", "")
+
+    def test_telegram_configured_in_health(self, server_url, monkeypatch):
+        """Health endpoint отображает telegram_configured."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+        url = f"{server_url}/health"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        assert data["telegram_configured"] is True
+
+    def test_unknown_command_trace_includes_send_status(self, server_url, monkeypatch):
+        """Trace неизвестной команды содержит [send: send_mocked]."""
+        monkeypatch.setattr(
+            "src.sandbox.runtime._try_send_telegram_message",
+            lambda chat_id, text: "send_mocked",
+        )
+        payload = {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "text": "/foo",
+                "chat": {"id": 1},
+            },
+        }
+        code, body = self._post_webhook(server_url, payload)
+        data = json.loads(body)
+        assert "[send: send_mocked]" in data.get("trace", "")
+
+    def test_text_path_trace_includes_send_status(self, server_url, monkeypatch):
+        """Trace текстового пути содержит [send: send_mocked]."""
+        monkeypatch.setattr(
+            "src.sandbox.runtime._try_send_telegram_message",
+            lambda chat_id, text: "send_mocked",
+        )
+        payload = {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "text": "Добавь рецепт борща",
+                "chat": {"id": 1},
+            },
+        }
+        code, body = self._post_webhook(server_url, payload)
+        data = json.loads(body)
+        assert "[send: send_mocked]" in data.get("trace", "")

@@ -103,6 +103,7 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             cfg = SandboxConfig()
+            telegram_configured = bool(os.environ.get("TELEGRAM_BOT_TOKEN"))
             response = {
                 "status": status,
                 "runtime": "python-stdlib",
@@ -111,6 +112,7 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
                 "enabled_domains": cfg.enabled_domains,
                 "agent_ids": list(AGENT_REGISTRY.keys()),
                 "persistence": persistence,
+                "telegram_configured": telegram_configured,
                 "database": {
                     "configured": configured,
                     "reachable": reachable,
@@ -190,11 +192,30 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
                 return
 
             if stripped_text.startswith("/"):
-                self._send_unknown_command_response(stripped_text)
+                chat_id = message.get("chat", {}).get("id")
+                self._send_unknown_command_response(stripped_text, chat_id)
                 return
 
             try:
+                chat_id = message.get("chat", {}).get("id")
                 result = asyncio.run(_harness_instance.run_flow(text))
+
+                routing = result.get("routing", {})
+                domain_id = routing.get("domain_id")
+                agent_id = routing.get("agent_id")
+                domain_text = f"domain={domain_id or 'none'}, agent={agent_id or 'none'}"
+                try:
+                    send_status = _try_send_telegram_message(
+                        chat_id,
+                        f"ADR Sandbox processed: {domain_text}\n"
+                        f"Output: {result.get('output', '')[:300]}"
+                    ) if chat_id else "no_chat_id"
+                except Exception:
+                    send_status = "send_deferred_exception"
+
+                trace = result.get("trace", "")
+                result["trace"] = f"{trace} [send: {send_status}]".strip()
+
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -251,7 +272,11 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
         }
         self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
 
-    def _send_unknown_command_response(self, command: str):
+    def _send_unknown_command_response(self, command: str, chat_id=None):
+        reply_text = f"Неизвестная команда: {command}. Отправьте /start для информации."
+
+        send_status = _try_send_telegram_message(chat_id, reply_text) if chat_id else "no_chat_id"
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -265,9 +290,9 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
                 "requires_clarification": True,
                 "clarification_question": "Неизвестная команда. Доступна: /start",
             },
-            "trace": f"[routing: unknown_command ({command})]",
+            "trace": f"[routing: unknown_command ({command})] [send: {send_status}]",
             "success": False,
-            "output": f"Неизвестная команда: {command}. Отправьте /start для информации.",
+            "output": reply_text,
             "display_name": None,
         }
         self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
