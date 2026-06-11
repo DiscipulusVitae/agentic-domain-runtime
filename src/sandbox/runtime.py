@@ -8,18 +8,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from src.sandbox.harness import SandboxHarness
 from src.sandbox.config import SandboxConfig
 from src.sandbox.agent_registry import AGENT_REGISTRY
+from src.sandbox.runtime_helpers import _constant_time_compare, _try_send_telegram_message
 
 logger = logging.getLogger("sandbox.runtime")
-
-
-def _constant_time_compare(a: str, b: str) -> bool:
-    """Constant-time сравнение строк для защиты от timing attacks."""
-    if len(a) != len(b):
-        return False
-    result = 0
-    for x, y in zip(a, b):
-        result |= ord(x) ^ ord(y)
-    return result == 0
 
 # Singleton harness instance to preserve state across requests
 _harness_instance = SandboxHarness()
@@ -296,39 +287,6 @@ class SandboxRuntimeHTTPRequestHandler(BaseHTTPRequestHandler):
             "display_name": None,
         }
         self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
-
-
-def _try_send_telegram_message(chat_id, text) -> str:
-    """Пытается отправить сообщение через Telegram Bot API.
-
-    Без live токена — возвращает send_deferred/send_skipped.
-    С токеном — делает HTTP POST к sendMessage.
-    Возвращает строку статуса для trace.
-    """
-    import os
-
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not token:
-        return "send_skipped_no_token"
-
-    try:
-        payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            if resp.getcode() == 200:
-                return "send_ok"
-            return f"send_failed_http_{resp.getcode()}"
-    except urllib.error.URLError:
-        return "send_deferred_network_unavailable"
-    except Exception as e:
-        return f"send_deferred_{type(e).__name__}"
-
 
 def serve(host: str, port: int):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")

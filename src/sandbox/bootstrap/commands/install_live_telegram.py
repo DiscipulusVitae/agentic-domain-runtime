@@ -494,7 +494,6 @@ def _webhook_smoke(token: str, webhook_url: str, webhook_secret: str) -> None:
     except Exception as e:
         step_info(f"Smoke — без секрета: {e}")
 
-
 def _sha256_hex(data: str) -> str:
     """SHA-256 хеш строки в hex-формате."""
     import hashlib
