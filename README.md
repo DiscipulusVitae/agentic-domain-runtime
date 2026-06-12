@@ -214,6 +214,8 @@ To enable the provider-backed pipeline:
    OPENAI_COMPATIBLE_BASE_URL="https://api.kilo.ai/api/gateway"
    OPENAI_COMPATIBLE_API_KEY="" # leave unset/empty for endpoints that support anonymous access
    ```
+   Kilo anonymous `:free` availability is provider-dependent. If the gateway returns `400`, `401`, or times out, treat that as a non-blocking provider failure and use the default fake/offline reviewer path.
+
 2. Execute the sandbox CLI as usual:
    ```bash
    uv run python -m src.sandbox "Давление 120 на 80"

@@ -313,6 +313,8 @@ Update your `.env` configuration file with the following variables:
 *   `OPENAI_COMPATIBLE_BASE_URL`: The absolute URL of the provider endpoint (e.g. `https://api.kilo.ai/api/gateway`).
 *   `OPENAI_COMPATIBLE_API_KEY`: Optional authorization key. Leave unset/empty for endpoints that support anonymous access.
 
+Kilo anonymous `:free` availability is provider-dependent. A `400`, `401`, or timeout from the gateway is treated as a non-blocking provider failure, not as a failure of the offline reviewer path or the validation-gated persistence seam.
+
 ### Execution Example
 Once configured, run any scenario or standard input:
 ```bash
