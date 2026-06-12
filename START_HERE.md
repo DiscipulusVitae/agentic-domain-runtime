@@ -16,6 +16,8 @@ uv run python -m src.sandbox --scenario kitchen --full
 
 Результат: 99+ тестов, 4 сценария на домен. Все на синтетических данных.
 
+*Примечание:* Поддерживается опциональный запуск через совместимый с OpenAI API-провайдер (`openai_compatible`). Подробнее см. в [README.md](README.md).
+
 → Подробнее: [Reviewer Guide](docs/REVIEWER_GUIDE.md), Path A.
 
 ---
@@ -85,3 +87,4 @@ Installer v1 alpha — реализован. Win+WSL2 proof run выполнен
 | Cloud bootstrap (Supabase + Render + Telegram /health) | доказан (существующий сервис) | ручной runbook, human-authorized |
 | Live installer (guided wizard) | v1 alpha | `bootstrap install --yes` |
 | Win+WSL2 proof run | выполнен с caveats | guided wizard + Supabase proven, fresh Render pending |
+| Optional OpenAI-compatible LLM path | implemented | manual config, mocked tests, validation-gated |

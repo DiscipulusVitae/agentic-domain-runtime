@@ -302,6 +302,32 @@ Verify the local preview of the rollback/cleanup plan before future live apply o
 
 ---
 
+## Optional: OpenAI-Compatible Provider Verification Path
+
+To verify the optional real-provider seam beyond the default fake client, reviewers can manually wire the domain routing and extraction pipelines to a compatible `/chat/completions` endpoint.
+
+### Configuration
+Update your `.env` configuration file with the following variables:
+*   `ADR_LLM_PROVIDER`: Set this to `openai_compatible` to activate the provider client.
+*   `ADR_LLM_MODELS`: A comma-separated list of models to try (e.g. `kilo-auto/free`). The client will attempt models in order, falling back if errors occur.
+*   `OPENAI_COMPATIBLE_BASE_URL`: The absolute URL of the provider endpoint (e.g. `https://api.kilo.ai/api/gateway`).
+*   `OPENAI_COMPATIBLE_API_KEY`: Optional authorization key. Leave unset/empty for endpoints that support anonymous access.
+
+### Execution Example
+Once configured, run any scenario or standard input:
+```bash
+uv run python -m src.sandbox "Запиши давление родственника 120 на 80 и пульс 70"
+```
+
+### Constraints & Guarantees
+*   **Default Path Safety**: The offline `fake` provider remains the default, required-safe reviewer path. No API key is required to run default sandboxed verification.
+*   **Manual Optional Path**: Provider-backed execution is not part of CI, Docker defaults, or the required reviewer path.
+*   **No Real LLMs in CI/Docker**: By default, standard container builds and CI test pipelines do not execute real LLM queries and rely solely on the fake provider.
+*   **Validation-Gated Persistence**: Raw provider outputs are never saved directly to the database. Extraction results are rigorously validated against typed schemas. Incomplete, malformed, or invalid payloads fail closed, preventing corrupted records from entering in-memory mocks.
+*   **Medical Logging Boundaries**: The health logging capability operates purely as a structured data logging tool, containing no clinical decision support or medical advice.
+
+---
+
 ## Path B: Optional Local Supabase Setup & Verification
 
 For reviewers analyzing our PostgreSQL/Supabase boundaries:

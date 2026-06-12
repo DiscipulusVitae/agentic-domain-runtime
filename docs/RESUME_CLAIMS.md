@@ -15,6 +15,9 @@ These claims are directly verifiable by running the tests, reading the codebase,
 | **Separation of LLM extraction from validation and persistence** | `src/sandbox/fake_llm.py`, `src/sandbox/harness.py` | `tests/sandbox/test_fake_llm.py` |
 | **Offline reviewer harness running on synthetic data** | `src/sandbox/fixtures/`, `docs/SYNTHETIC_DATA_POLICY.md` | `tests/sandbox/` |
 | **Non-clinical health logging data capture boundaries** | `src/sandbox/contracts.py` (MedicalEntry), `docs/PUBLIC_SURFACE.md` | `tests/sandbox/test_harness_health.py` |
+| **Optional OpenAI-compatible provider integration with model fallback** | `src/sandbox/openai_client.py`, `src/sandbox/fake_llm.py`, `src/sandbox/config.py` | `tests/sandbox/test_openai_client.py`, `tests/sandbox/test_sandbox_config.py` |
+| **Validation-gated persistence for unstructured data extraction** | `src/sandbox/harness.py` (health flow persistence checks), `src/sandbox/contracts.py` | `tests/sandbox/test_harness_health.py` (`test_health_flow_openai_valid_persists`, `test_health_flow_openai_malformed_json`, `test_health_flow_openai_invalid_validation`) |
+
 
 ---
 

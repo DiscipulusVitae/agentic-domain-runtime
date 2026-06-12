@@ -203,6 +203,31 @@ supabase db query --local --file supabase/smoke.sql
 supabase stop
 ```
 
+### Optional OpenAI-Compatible Provider Path
+Reviewers can optionally execute the routing and domain extraction pipelines with a compatible `/chat/completions` endpoint instead of the default offline fake client.
+
+To enable the provider-backed pipeline:
+1. Configure the environment variables in your `.env` file:
+   ```bash
+   ADR_LLM_PROVIDER="openai_compatible"
+   ADR_LLM_MODELS="kilo-auto/free"
+   OPENAI_COMPATIBLE_BASE_URL="https://api.kilo.ai/api/gateway"
+   OPENAI_COMPATIBLE_API_KEY="" # leave unset/empty for endpoints that support anonymous access
+   ```
+2. Execute the sandbox CLI as usual:
+   ```bash
+   uv run python -m src.sandbox "Давление 120 на 80"
+   ```
+
+**Integration Guarantees & Constraints:**
+* **Fake Default**: The offline fake client remains the default and required-safe reviewer path.
+* **No API Key Required**: No external credentials or endpoints are required to run the default sandbox verification suite.
+* **Manual Optional Path**: Provider-backed execution is a manual smoke path, not part of the default reviewer path and not claimed as a live smoke unless explicitly run.
+* **No Real LLM in CI/Docker**: CI pipelines and default Docker executor environments use the fake provider to run fully offline.
+* **Validation-Gated Persistence**: No raw provider outputs are stored directly. Extracted data must pass strict structural and type validation before being loaded into the local in-memory persistence seam. Incomplete or malformed payloads fail closed.
+* **No Clinical Advice**: The medical and health-log capture pipeline serves purely as a structured data logging tool, avoiding clinical decision support.
+
+
 ## Reviewer Navigation Map
 
 - **[START HERE](START_HERE.md)**: 30-секундная ориентация — три пути.
