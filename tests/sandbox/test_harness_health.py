@@ -1,26 +1,31 @@
 import pytest
+import os
+import json
+from unittest.mock import patch, AsyncMock
 from src.sandbox.harness import SandboxHarness
+from src.sandbox.fake_llm import FakeLLMClient, FakeResponse
+from src.sandbox.contracts import MedicalExtraction, MedicalEntry
 
 
 @pytest.mark.asyncio
 async def test_health_flow():
     harness = SandboxHarness()
-    
+
     # Run harness with health record metadata
     result = await harness.run_flow("Запиши мое давление 120 на 80 и пульс 70")
-    
+
     assert result["success"] is True
     assert result["routing"]["domain_id"] == "medical"
     assert "[routing: medical]" in result["trace"]
     assert "[extraction: success]" in result["trace"]
     assert "[validation: success]" in result["trace"]
     assert "[persistence: saved" in result["trace"]
-    
+
     # Verify records in in-memory storage
     medical_service = harness.dp["medical_service"]
     entries = await medical_service.get_recent_entries(limit=10)
     assert len(entries) > 0
-    
+
     last_entry = entries[0]
     assert last_entry.metric_type == "blood_pressure"
     assert last_entry.systolic == 120
@@ -51,3 +56,289 @@ async def test_synthetic_subject_extraction():
     result_relative = await harness.run_flow("Запиши давление родственника 140 на 90")
     assert result_relative["success"] is True
     assert "субъекта: Родственник" in result_relative["output"]
+
+
+@pytest.mark.asyncio
+async def test_health_flow_parsed_none():
+    """Тест: если provider/client вернул parsed=None"""
+    harness = SandboxHarness()
+
+    original_send = FakeLLMClient.send_with_fallback
+
+    async def mock_send(self, *args, **kwargs):
+        if self.agent_id == "health.recorder":
+            return FakeResponse(text="{}", parsed=None), "fake-model"
+        return await original_send(self, *args, **kwargs)
+
+    with patch.object(FakeLLMClient, "send_with_fallback", mock_send):
+        result = await harness.run_flow("Запиши мое давление 120 на 80")
+
+    assert result["success"] is False
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: failed]" in result["trace"]
+    assert "[validation: failed]" in result["trace"]
+    assert "[persistence: failed]" in result["trace"]
+    assert len(harness.medical_db) == 0
+
+
+@pytest.mark.asyncio
+async def test_health_flow_incomplete_extraction_empty():
+    """Тест: если extraction incomplete (entries пустые)"""
+    harness = SandboxHarness()
+
+    original_send = FakeLLMClient.send_with_fallback
+
+    async def mock_send(self, *args, **kwargs):
+        if self.agent_id == "health.recorder":
+            # Используем model_construct, чтобы обойти валидацию Pydantic на пустые записи
+            extraction = MedicalExtraction.model_construct(
+                raw_text="Запиши мое давление",
+                confidence=1.0,
+                entries=[]
+            )
+            return FakeResponse(text="{}", parsed=extraction), "fake-model"
+        return await original_send(self, *args, **kwargs)
+
+    with patch.object(FakeLLMClient, "send_with_fallback", mock_send):
+        result = await harness.run_flow("Запиши мое давление")
+
+    assert result["success"] is False
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: success]" in result["trace"]
+    assert "[validation: failed]" in result["trace"]
+    assert "[persistence: failed]" in result["trace"]
+    assert len(harness.medical_db) == 0
+
+
+@pytest.mark.asyncio
+async def test_health_flow_incomplete_extraction_partial():
+    """Тест: если extraction incomplete (metric fields incomplete)"""
+    harness = SandboxHarness()
+
+    original_send = FakeLLMClient.send_with_fallback
+
+    async def mock_send(self, *args, **kwargs):
+        if self.agent_id == "health.recorder":
+            # metric_type = blood_pressure требует systolic и diastolic для полноты
+            entry = MedicalEntry(
+                metric_type="blood_pressure",
+                systolic=None, # Неполное поле
+                diastolic=80
+            )
+            extraction = MedicalExtraction(
+                raw_text="Давление на 80",
+                confidence=1.0,
+                entries=[entry]
+            )
+            return FakeResponse(text=extraction.model_dump_json(), parsed=extraction), "fake-model"
+        return await original_send(self, *args, **kwargs)
+
+    with patch.object(FakeLLMClient, "send_with_fallback", mock_send):
+        result = await harness.run_flow("Давление на 80")
+
+    assert result["success"] is False
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: success]" in result["trace"]
+    assert "[validation: failed]" in result["trace"]
+    assert "[persistence: failed]" in result["trace"]
+    assert len(harness.medical_db) == 0
+
+
+@pytest.mark.asyncio
+async def test_health_flow_openai_malformed_json():
+    """Тест: если assistant content malformed JSON (через OpenAICompatibleLLMClient)"""
+    harness = SandboxHarness()
+
+    env_vars = {
+        "ADR_LLM_PROVIDER": "openai_compatible",
+        "OPENAI_COMPATIBLE_BASE_URL": "http://mock-api.com",
+        "OPENAI_COMPATIBLE_API_KEY": "test-key"
+    }
+
+    butler_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '{"domain_id": "medical", "agent_id": "health.recorder", "intent": "add_entry", "confidence": 0.9}'
+                }
+            }
+        ]
+    }
+    health_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "not a valid json" # Malformed JSON
+                }
+            }
+        ]
+    }
+
+    from src.sandbox.openai_client import OpenAICompatibleLLMClient
+
+    with patch.dict(os.environ, env_vars):
+        with patch.object(OpenAICompatibleLLMClient, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = [json.dumps(butler_response), json.dumps(health_response)]
+
+            result = await harness.run_flow("Запиши мое давление 120 на 80")
+
+    assert result["success"] is False
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: failed]" in result["trace"]
+    assert "[validation: failed]" in result["trace"]
+    assert "[persistence: failed]" in result["trace"]
+    assert len(harness.medical_db) == 0
+
+
+@pytest.mark.asyncio
+async def test_health_flow_openai_invalid_validation():
+    """Тест: если JSON валиден, но не проходит MedicalExtraction/entry validation (через OpenAICompatibleLLMClient)"""
+    harness = SandboxHarness()
+
+    env_vars = {
+        "ADR_LLM_PROVIDER": "openai_compatible",
+        "OPENAI_COMPATIBLE_BASE_URL": "http://mock-api.com",
+        "OPENAI_COMPATIBLE_API_KEY": "test-key"
+    }
+
+    butler_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '{"domain_id": "medical", "agent_id": "health.recorder", "intent": "add_entry", "confidence": 0.9}'
+                }
+            }
+        ]
+    }
+    # Нет entries/entry, что нарушает validation
+    health_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '{"raw_text": "Запиши мое давление", "confidence": 1.0}'
+                }
+            }
+        ]
+    }
+
+    from src.sandbox.openai_client import OpenAICompatibleLLMClient
+
+    with patch.dict(os.environ, env_vars):
+        with patch.object(OpenAICompatibleLLMClient, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = [json.dumps(butler_response), json.dumps(health_response)]
+
+            result = await harness.run_flow("Запиши мое давление")
+
+    assert result["success"] is False
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: failed]" in result["trace"]
+    assert len(harness.medical_db) == 0
+
+
+@pytest.mark.asyncio
+async def test_health_flow_openai_valid_persists():
+    """Тест: если extraction валиден и complete, то сохранение происходит успешно (через OpenAICompatibleLLMClient)"""
+    harness = SandboxHarness()
+
+    env_vars = {
+        "ADR_LLM_PROVIDER": "openai_compatible",
+        "OPENAI_COMPATIBLE_BASE_URL": "http://mock-api.com",
+        "OPENAI_COMPATIBLE_API_KEY": "test-key"
+    }
+
+    butler_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '{"domain_id": "medical", "agent_id": "health.recorder", "intent": "add_entry", "confidence": 0.9}'
+                }
+            }
+        ]
+    }
+
+    extraction = MedicalExtraction(
+        raw_text="Давление 120 на 80",
+        confidence=1.0,
+        entries=[
+            MedicalEntry(
+                metric_type="blood_pressure",
+                systolic=120,
+                diastolic=80
+            )
+        ]
+    )
+
+    health_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": extraction.model_dump_json()
+                }
+            }
+        ]
+    }
+
+    from src.sandbox.openai_client import OpenAICompatibleLLMClient
+
+    with patch.dict(os.environ, env_vars):
+        with patch.object(OpenAICompatibleLLMClient, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = [json.dumps(butler_response), json.dumps(health_response)]
+
+            result = await harness.run_flow("Давление 120 на 80")
+
+    assert result["success"] is True
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: success]" in result["trace"]
+    assert "[validation: success]" in result["trace"]
+    assert "[persistence: saved (1 records)]" in result["trace"]
+    assert len(harness.medical_db) == 1
+    assert harness.medical_db[0].systolic == 120
+    assert harness.medical_db[0].diastolic == 80
+
+
+@pytest.mark.asyncio
+async def test_health_flow_openai_all_models_failed_exception():
+    """Тест: если все модели упали с исключением (исчерпан models fallback)"""
+    harness = SandboxHarness()
+
+    env_vars = {
+        "ADR_LLM_PROVIDER": "openai_compatible",
+        "OPENAI_COMPATIBLE_BASE_URL": "http://mock-api.com",
+        "OPENAI_COMPATIBLE_API_KEY": "test-key"
+    }
+
+    butler_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '{"domain_id": "medical", "agent_id": "health.recorder", "intent": "add_entry", "confidence": 0.9}'
+                }
+            }
+        ]
+    }
+
+    from src.sandbox.openai_client import OpenAICompatibleLLMClient
+
+    with patch.dict(os.environ, env_vars):
+        with patch.object(OpenAICompatibleLLMClient, "_send_request", new_callable=AsyncMock) as mock_send:
+            # Первый вызов (butler) успешен, второй (health.recorder) бросает RuntimeError
+            mock_send.side_effect = [
+                json.dumps(butler_response),
+                RuntimeError("All models failed to return a valid response.")
+            ]
+
+            result = await harness.run_flow("Запиши мое давление 120 на 80")
+
+    assert result["success"] is False
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: failed]" in result["trace"]
+    assert "[validation: failed]" in result["trace"]
+    assert "[persistence: failed]" in result["trace"]
+    assert len(harness.medical_db) == 0

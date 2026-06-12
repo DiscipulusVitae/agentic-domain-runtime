@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from src.sandbox.fake_llm import FakeLLMClient
-from src.sandbox.contracts import ButlerClassifierService, MedicalEntry
+from src.sandbox.contracts import ButlerClassifierService, MedicalEntry, MedicalExtraction
 from src.sandbox.agent_registry import AGENT_REGISTRY
 from src.sandbox.core import FlowResult, TraceHelper, OutputBuilder
 
@@ -66,11 +66,11 @@ class SandboxHarness:
         self.books_db: list[FakeBook] = []
         self.medical_db: list[MedicalEntry] = []
         self.kitchen_db: list[FakeRecipe] = []
-        
+
         self.books_db_service = FakeBooksService(self.books_db)
         self.medical_db_service = FakeMedicalService(self.medical_db)
         self.kitchen_db_service = FakeKitchenService(self.kitchen_db)
-        
+
         self.dp = {
             "books_service": self.books_db_service,
             "medical_service": self.medical_db_service,
@@ -86,7 +86,7 @@ class SandboxHarness:
         fake_butler_client = FakeLLMClient(agent_id="core.butler")
         classifier = ButlerClassifierService(llm_client=fake_butler_client)
         result = await classifier.classify(text, "text")
-        
+
         domain_id = result.domain
         trace_helper = TraceHelper()
         if not domain_id:
@@ -114,10 +114,10 @@ class SandboxHarness:
                 history=[]
             )
             recipe_extraction = response.parsed  # This is RecipeDraft
-            
+
             display_name = AGENT_REGISTRY["kitchen.recorder"].display_name
             output_builder.add_header("⏳ Анализирую рецепт...", display_name)
-            
+
             if recipe_extraction.ready_to_save:
                 await self.kitchen_db_service.create_recipe(
                     title=recipe_extraction.title,
@@ -147,10 +147,10 @@ class SandboxHarness:
                 history=[]
             )
             book_extraction = response.parsed  # This is BookExtraction
-            
+
             display_name = AGENT_REGISTRY["books.librarian"].display_name
             output_builder.add_header("⏳ Обрабатываю описание книги...", display_name)
-            
+
             if book_extraction.ready_to_save:
                 await self.books_db_service.create_book(
                     title=book_extraction.title,
@@ -175,18 +175,28 @@ class SandboxHarness:
         elif domain_id == "medical":
             # Extract via medical client
             fake_medical_client = FakeLLMClient(agent_id="health.recorder")
-            response, active_model = await fake_medical_client.send_with_fallback(
-                chat=None,
-                message=text,
-                current_model="fake-model",
-                history=[]
-            )
-            medical_extraction = response.parsed  # This is MedicalExtraction
-            
+            try:
+                response, active_model = await fake_medical_client.send_with_fallback(
+                    chat=None,
+                    message=text,
+                    current_model="fake-model",
+                    history=[]
+                )
+                medical_extraction = response.parsed if response else None
+            except Exception as e:
+                logger.warning(f"Health extraction call failed with exception: {e}")
+                medical_extraction = None
+
             display_name = AGENT_REGISTRY["health.recorder"].display_name
             output_builder.add_header("⏳ Анализирую медицинские показатели...", display_name)
-            
-            if medical_extraction.entries:
+
+            # Validation & Persistence Gate
+            if (
+                medical_extraction is not None
+                and isinstance(medical_extraction, MedicalExtraction)
+                and medical_extraction.entries
+                and medical_extraction.is_complete()
+            ):
                 for entry in medical_extraction.entries:
                     self.medical_db.append(entry)
                 persisted = True
@@ -197,10 +207,19 @@ class SandboxHarness:
                 output_builder.add_line(f"❤️ Запись успешно сохранена в sandbox для субъекта: {medical_extraction.subject_label or 'Не указан'}")
             else:
                 persisted = False
-                trace_helper.add_flow_steps(
-                    extraction=False, validation=False, persistence=False
-                )
-                output_builder.add_line(medical_extraction.next_question or "Не удалось извлечь медицинские показатели.")
+                # If extraction was successful but validation failed (incomplete extraction)
+                if medical_extraction is not None and isinstance(medical_extraction, MedicalExtraction):
+                    trace_helper.add_flow_steps(
+                        extraction=True, validation=False, persistence=False
+                    )
+                    next_q = medical_extraction.next_question
+                else:
+                    trace_helper.add_flow_steps(
+                        extraction=False, validation=False, persistence=False
+                    )
+                    next_q = None
+
+                output_builder.add_line(next_q or "Не удалось извлечь медицинские показатели.")
 
         agent_id = result.decision.agent_id
         display_name = AGENT_REGISTRY[agent_id].display_name if agent_id in AGENT_REGISTRY else None
