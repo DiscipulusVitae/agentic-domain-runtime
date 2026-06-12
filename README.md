@@ -210,7 +210,7 @@ To enable the provider-backed pipeline:
 1. Configure the environment variables in your `.env` file:
    ```bash
    ADR_LLM_PROVIDER="openai_compatible"
-   ADR_LLM_MODELS="kilo-auto/free"
+   ADR_LLM_MODELS="kilo/stepfun/step-3.7-flash:free,kilo/poolside/laguna-m.1:free"
    OPENAI_COMPATIBLE_BASE_URL="https://api.kilo.ai/api/gateway"
    OPENAI_COMPATIBLE_API_KEY="" # leave unset/empty for endpoints that support anonymous access
    ```

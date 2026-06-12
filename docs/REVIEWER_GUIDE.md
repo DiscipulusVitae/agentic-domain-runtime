@@ -309,7 +309,7 @@ To verify the optional real-provider seam beyond the default fake client, review
 ### Configuration
 Update your `.env` configuration file with the following variables:
 *   `ADR_LLM_PROVIDER`: Set this to `openai_compatible` to activate the provider client.
-*   `ADR_LLM_MODELS`: A comma-separated list of models to try (e.g. `kilo-auto/free`). The client will attempt models in order, falling back if errors occur.
+*   `ADR_LLM_MODELS`: A comma-separated list of models to try (e.g. `kilo/stepfun/step-3.7-flash:free,kilo/poolside/laguna-m.1:free`). The client will attempt models in order, falling back if errors occur.
 *   `OPENAI_COMPATIBLE_BASE_URL`: The absolute URL of the provider endpoint (e.g. `https://api.kilo.ai/api/gateway`).
 *   `OPENAI_COMPATIBLE_API_KEY`: Optional authorization key. Leave unset/empty for endpoints that support anonymous access.
 

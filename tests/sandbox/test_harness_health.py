@@ -342,3 +342,134 @@ async def test_health_flow_openai_all_models_failed_exception():
     assert "[validation: failed]" in result["trace"]
     assert "[persistence: failed]" in result["trace"]
     assert len(harness.medical_db) == 0
+
+
+@pytest.mark.asyncio
+async def test_health_flow_openai_markdown_json_cleaning():
+    """Тест: очистка markdown-оберток ```json в OpenAICompatibleLLMClient"""
+    harness = SandboxHarness()
+
+    env_vars = {
+        "ADR_LLM_PROVIDER": "openai_compatible",
+        "OPENAI_COMPATIBLE_BASE_URL": "http://mock-api.com",
+        "OPENAI_COMPATIBLE_API_KEY": "test-key"
+    }
+
+    butler_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '```json\n{"domain_id": "medical", "agent_id": "health.recorder", "intent": "add_entry", "confidence": 0.9}\n```'
+                }
+            }
+        ]
+    }
+
+    extraction = MedicalExtraction(
+        raw_text="Давление 120 на 80",
+        confidence=1.0,
+        entries=[
+            MedicalEntry(
+                metric_type="blood_pressure",
+                systolic=120,
+                diastolic=80
+            )
+        ]
+    )
+
+    health_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": f"```json\n{extraction.model_dump_json()}\n```"
+                }
+            }
+        ]
+    }
+
+    from src.sandbox.openai_client import OpenAICompatibleLLMClient
+
+    with patch.dict(os.environ, env_vars):
+        with patch.object(OpenAICompatibleLLMClient, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.side_effect = [json.dumps(butler_response), json.dumps(health_response)]
+
+            result = await harness.run_flow("Давление 120 на 80")
+
+    assert result["success"] is True
+    assert result["routing"]["domain_id"] == "medical"
+    assert "[extraction: success]" in result["trace"]
+    assert "[validation: success]" in result["trace"]
+    assert len(harness.medical_db) == 1
+    assert harness.medical_db[0].systolic == 120
+    assert harness.medical_db[0].diastolic == 80
+
+
+@pytest.mark.asyncio
+async def test_openai_client_default_system_prompts():
+    """Тест: проверка заполнения system_prompt по умолчанию для разных агентов в OpenAICompatibleLLMClient"""
+    from src.sandbox.openai_client import OpenAICompatibleLLMClient
+
+    env_vars = {
+        "OPENAI_COMPATIBLE_BASE_URL": "http://mock-api.com",
+    }
+
+    mock_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "{}"
+                }
+            }
+        ]
+    }
+
+    with patch.dict(os.environ, env_vars):
+        client_butler = OpenAICompatibleLLMClient(agent_id="core.butler")
+        with patch.object(client_butler, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = json.dumps(mock_response)
+            # Trigger system prompt initialization
+            await client_butler.send_with_fallback(
+                chat=None,
+                message="test",
+                current_model="test-model",
+                history=[]
+            )
+            assert "Butler Core" in client_butler.system_prompt
+            assert "domain_id" in client_butler.system_prompt
+
+        client_health = OpenAICompatibleLLMClient(agent_id="health.recorder")
+        with patch.object(client_health, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = json.dumps(mock_response)
+            await client_health.send_with_fallback(
+                chat=None,
+                message="test",
+                current_model="test-model",
+                history=[]
+            )
+            assert "Health Assistant" in client_health.system_prompt
+            assert "entries" in client_health.system_prompt
+
+        client_books = OpenAICompatibleLLMClient(agent_id="books.librarian")
+        with patch.object(client_books, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = json.dumps(mock_response)
+            await client_books.send_with_fallback(
+                chat=None,
+                message="test",
+                current_model="test-model",
+                history=[]
+            )
+            assert "Librarian Assistant" in client_books.system_prompt
+
+        client_kitchen = OpenAICompatibleLLMClient(agent_id="kitchen.recorder")
+        with patch.object(client_kitchen, "_send_request", new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = json.dumps(mock_response)
+            await client_kitchen.send_with_fallback(
+                chat=None,
+                message="test",
+                current_model="test-model",
+                history=[]
+            )
+            assert "Kitchen Assistant" in client_kitchen.system_prompt
