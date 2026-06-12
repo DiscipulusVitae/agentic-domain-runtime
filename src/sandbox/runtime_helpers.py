@@ -39,9 +39,20 @@ def _try_send_telegram_message(chat_id, text) -> str:
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
-            if resp.getcode() == 200:
+            if resp.getcode() != 200:
+                return f"send_failed_http_{resp.getcode()}"
+            try:
+                body = json.loads(resp.read().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return "send_ok_not_parsed"
+            if body.get("ok"):
                 return "send_ok"
-            return f"send_failed_http_{resp.getcode()}"
+            error_code = body.get("error_code", "unknown")
+            description = body.get("description", "")
+            safe_desc = description[:80].replace(" ", "_") if description else "no_description"
+            status = f"send_failed_tg_{error_code}_{safe_desc}"
+            logger.warning("Telegram sendMessage failed: error_code=%s, description=%s", error_code, description)
+            return status
     except urllib.error.URLError:
         return "send_deferred_network_unavailable"
     except Exception as e:

@@ -468,6 +468,7 @@ class TestTelegramSendMessageMock:
             calls.append(req)
             resp = MagicMock()
             resp.getcode.return_value = 200
+            resp.read.return_value = b'{"ok":true,"result":{"message_id":1}}'
             resp.__enter__.return_value = resp
             resp.__exit__.return_value = False
             return resp
@@ -483,3 +484,24 @@ class TestTelegramSendMessageMock:
         assert body["chat_id"] == 123456
         assert body["text"] == "test message"
         assert "fake-bot-token-123" in req.full_url
+
+    def test_send_message_tg_api_error(self, monkeypatch):
+        """Telegram API возвращает HTTP 200, но {"ok": false} — корректно распознаётся."""
+        import urllib.request
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-bot-token-456")
+
+        from src.sandbox.runtime import _try_send_telegram_message
+
+        def fake_urlopen(req, timeout=None):
+            resp = MagicMock()
+            resp.getcode.return_value = 200
+            resp.read.return_value = b'{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}'
+            resp.__enter__.return_value = resp
+            resp.__exit__.return_value = False
+            return resp
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+        result = _try_send_telegram_message(chat_id=123456, text="test")
+        assert result.startswith("send_failed_tg_403")
+        assert "bot_was_blocked" in result
