@@ -92,7 +92,9 @@ class ButlerClassifierService:
             )
 
         try:
-            priority = self.llm_client.config.gemini_models_priority
+            priority = getattr(self.llm_client.config, "models_priority", None)
+            if not priority:
+                priority = getattr(self.llm_client.config, "gemini_models_priority", None)
         except AttributeError:
             return ButlerClassifierResult(
                 parse_error_type="llm_call",
@@ -103,7 +105,7 @@ class ButlerClassifierService:
         if not priority:
             return ButlerClassifierResult(
                 parse_error_type="llm_call",
-                parse_error_detail="empty_gemini_models_priority",
+                parse_error_detail="empty_models_priority",
                 llm_call_failed=True,
             )
 

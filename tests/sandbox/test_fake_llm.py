@@ -59,7 +59,8 @@ def test_create_chat_returns_stub():
 
 
 def test_config_attribute_exists():
-    """config.gemini_models_priority is available and correct."""
+    """config.models_priority and config.gemini_models_priority are available and correct."""
     client = FakeLLMClient()
     assert hasattr(client, "config")
+    assert client.config.models_priority == ["fake-model"]
     assert client.config.gemini_models_priority == ["fake-model"]

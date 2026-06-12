@@ -19,8 +19,9 @@ class FakeAsyncChat:
 
 class FakeLLMConfig:
     """Stub config object with priority models list."""
-    def __init__(self):
-        self.gemini_models_priority = ["fake-model"]
+    def __init__(self, models_priority: Optional[list[str]] = None):
+        self.models_priority = models_priority or ["fake-model"]
+        self.gemini_models_priority = self.models_priority
 
 
 class FakeLLMClient:
@@ -28,10 +29,18 @@ class FakeLLMClient:
     Fake LLM Client conforming to LLMClientProtocol by duck typing.
     Provides mock classification and structured data extraction for the sandbox.
     """
-    def __init__(self, agent_id: str = "core.butler"):
+    def __init__(self, agent_id: str = "core.butler", config: Optional[Any] = None):
         self.agent_id = agent_id
-        self.config = FakeLLMConfig()
-        
+        from src.sandbox.config import SandboxConfig
+        self.config = config or SandboxConfig()
+
+        self.llm_provider = getattr(self.config, "llm_provider", "fake")
+        if self.llm_provider == "openai_compatible":
+            from src.sandbox.openai_client import OpenAICompatibleLLMClient
+            self._delegate = OpenAICompatibleLLMClient(agent_id=agent_id, config=self.config)
+        else:
+            self._delegate = None
+
         self.agent_config = None
         self.system_prompt = ""
         self.messages = {
@@ -49,8 +58,10 @@ class FakeLLMClient:
         model: str,
         history: Optional[list] = None,
         extra_context: Optional[str] = None,
-    ) -> FakeAsyncChat:
+    ) -> Any:
         """Create a stub chat session."""
+        if self._delegate:
+            return self._delegate.create_chat(model, history, extra_context)
         return FakeAsyncChat()
 
     async def send_with_fallback(
@@ -64,6 +75,12 @@ class FakeLLMClient:
         """
         Simulate sending a message to the LLM.
         """
+        if self._delegate:
+            if hasattr(self, "system_prompt") and self.system_prompt:
+                self._delegate.system_prompt = self.system_prompt
+            if hasattr(self, "schema_class") and self.schema_class:
+                self._delegate.schema_class = self.schema_class
+            return await self._delegate.send_with_fallback(chat, message, current_model, history, extra_context)
         # Ensure we work with string message
         if isinstance(message, str):
             message_str = message
