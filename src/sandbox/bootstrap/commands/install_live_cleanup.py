@@ -96,9 +96,7 @@ def run_live_cleanup(preview: bool = False, json_mode: bool = False) -> int:
             print(json.dumps({"status": "nothing_to_cleanup"}, ensure_ascii=False))
         else:
             print("В state-файле нет созданных ресурсов. Нечего очищать.")
-            print("Удалить .bootstrap-state.json? [y/N]")
-            answer = input("  > ").strip().lower()
-            if answer == "y":
+            if ask_yes_no("Удалить .bootstrap-state.json?"):
                 Path(".bootstrap-state.json").unlink(missing_ok=True)
                 print("Файл состояния удалён.")
         return 0

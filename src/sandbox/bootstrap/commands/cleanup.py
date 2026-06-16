@@ -86,9 +86,15 @@ def run_cleanup(
             "webhook_target_url": plan.webhook_target_url
         }
 
-    has_supabase = any(s in applied_steps for s in ["supabase", "supabase_sim_db_created"])
-    has_render = any(s in applied_steps for s in ["render", "render_sim_service_created"])
-    has_telegram = any(s in applied_steps for s in ["telegram", "telegram_sim_webhook_configured"])
+    has_supabase = any(
+        s in applied_steps for s in ["supabase", "supabase_sim_db_created"]
+    ) or bool(state_data and state_data.get("supabase_project_ref"))
+    has_render = any(
+        s in applied_steps for s in ["render", "render_sim_service_created"]
+    ) or bool(state_data and state_data.get("render_service_id"))
+    has_telegram = any(
+        s in applied_steps for s in ["telegram", "telegram_sim_webhook_configured"]
+    ) or bool(state_data and state_data.get("webhook_set"))
 
     resources_status = {}
     for key, val in resources.items():

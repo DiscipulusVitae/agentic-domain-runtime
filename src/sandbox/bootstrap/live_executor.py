@@ -18,12 +18,29 @@ def ask(prompt: str) -> str:
 
 
 def ask_yes_no(prompt: str, default: bool = False) -> bool:
-    """Запрашивает y/N подтверждение."""
+    """Запрашивает y/N подтверждение.
+
+    Принимает только: y, yes, n, no (и кириллические д, да, н, нет).
+    Пустой ввод — default значение.
+    Длинный ввод (>50 символов) — reject как credential-shaped.
+    Повторяет prompt при нераспознанном ответе.
+    """
     suffix = " [y/N] " if not default else " [Y/n] "
-    response = ask(prompt + suffix).lower()
-    if not response:
-        return default
-    return response in ("y", "yes", "д", "да")
+    yes_set = frozenset({"y", "yes", "д", "да"})
+    no_set = frozenset({"n", "no", "н", "нет"})
+
+    while True:
+        response = ask(prompt + suffix).lower()
+        if not response:
+            return default
+        if len(response) > 50:
+            print("  Это выглядит как учётные данные, а не ответ yes/no.")
+            continue
+        if response in yes_set:
+            return True
+        if response in no_set:
+            return False
+        print("  Пожалуйста, ответьте y/n или да/нет.")
 
 
 def run_cmd(args: list[str], timeout: int = 120, cwd: Optional[str] = None,
